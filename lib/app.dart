@@ -28,6 +28,20 @@ class App extends ConsumerWidget {
         brightness: Brightness.dark,
       ),
       themeMode: themeMode,
+      // Android 15+ always renders edge-to-edge, so screens would otherwise
+      // paint underneath the system navigation bar. Insetting here once covers
+      // every route, dialog and bottom sheet. The top is left alone so AppBars
+      // keep extending behind the status bar; left/right handle the landscape
+      // nav bar and display cutouts. The ColoredBox fills the reserved strip
+      // with the same color a Scaffold uses, instead of the Android window
+      // background.
+      builder: (context, child) => ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(
+          top: false,
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
       routerConfig: router,
     );
   }

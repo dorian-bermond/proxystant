@@ -2,8 +2,7 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:mtg_artwork_picker/data/db/app_database.dart';
-
+import '../../data/db/app_database.dart';
 import '../../providers/providers.dart';
 import '../../data/models/provider_id.dart';
 
@@ -44,9 +43,6 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final projects = ref.read(projectRepoProvider);
-    final cardRepo = ref.read(cardRepoProvider);
-
     if (!_loadedInitialData) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _loadInitialData();
@@ -260,102 +256,31 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
               minLines: 10,
               maxLines: 18,
             ),
-            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _submitBar(context),
+    );
+  }
+
+  /// Sticky bar holding the submit button, so it stays reachable without
+  /// scrolling to the bottom of the form.
+  Widget _submitBar(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      elevation: 3,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             if (_error != null) ...[
               Text(_error!, style: const TextStyle(color: Colors.red)),
               const SizedBox(height: 8),
             ],
             FilledButton.icon(
-              onPressed: _creating
-                  ? null
-                  : () async {
-                      final name = _nameCtrl.text.trim();
-                      if (name.isEmpty) {
-                        setState(() => _error = 'Project name is required.');
-                        return;
-                      }
-
-                      final parsedCards = _parseInputCards(_cardsCtrl.text);
-                      final router = GoRouter.of(context);
-
-                      setState(() {
-                        _creating = true;
-                        _error = null;
-                      });
-
-                      try {
-                        final existingProjectId = widget.projectId;
-                        late final int id;
-
-                        if (existingProjectId == null) {
-                          if (parsedCards.isEmpty) {
-                            setState(() {
-                              _error = _deckMode
-                                  ? 'Please paste at least one valid deck line like "4 Lightning Bolt".'
-                                  : 'Please paste at least one card name.';
-                            });
-                            return;
-                          }
-
-                          id = await projects.createProject(
-                            name: name,
-                            enabledProviders: [
-                              SourceProviderId.scryfallMagicville,
-                            ],
-                          );
-
-                          final storage = ref.read(storagePathsProvider);
-                          await storage.projectImagesDir(id);
-                          await storage.projectThumbsDir(id);
-
-                          if (_importTokensOnly) {
-                            await ref
-                                .read(downloadPipelineProvider)
-                                .importTokensFromCardNames(id, parsedCards);
-                          } else {
-                            await cardRepo.insertCardsFromLines(id, parsedCards);
-                            final globalDao = ref.read(globalSettingsDaoProvider);
-                            await globalDao.copyBasicsToProject(id, parsedCards);
-                            await globalDao.applyGlobalFramesToProject(id);
-                          }
-                        } else {
-                          id = existingProjectId;
-
-                          final database = ref.read(dbProvider);
-
-                          await (database.update(database.projects)
-                                ..where((t) => t.id.equals(id)))
-                              .write(ProjectsCompanion(name: Value(name)));
-
-                          if (parsedCards.isNotEmpty) {
-                            if (_importTokensOnly) {
-                              await ref
-                                  .read(downloadPipelineProvider)
-                                  .importTokensFromCardNames(id, parsedCards);
-                            } else {
-                              final newCardsOnly =
-                                  await _removeExistingProjectCards(
-                                    id,
-                                    parsedCards,
-                                  );
-                              if (newCardsOnly.isNotEmpty) {
-                                await cardRepo.insertCardsFromLines(
-                                  id,
-                                  newCardsOnly,
-                                );
-                              }
-                            }
-                          }
-                        }
-
-                        if (!mounted) return;
-                        router.go('/projects/$id');
-                      } catch (e) {
-                        setState(() => _error = 'Failed: $e');
-                      } finally {
-                        if (mounted) setState(() => _creating = false);
-                      }
-                    },
+              onPressed: _creating ? null : _submit,
               icon: const Icon(Icons.check),
               label: Text(
                 _creating
@@ -373,6 +298,92 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _submit() async {
+    final projects = ref.read(projectRepoProvider);
+    final cardRepo = ref.read(cardRepoProvider);
+
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Project name is required.');
+      return;
+    }
+
+    final parsedCards = _parseInputCards(_cardsCtrl.text);
+    final router = GoRouter.of(context);
+
+    setState(() {
+      _creating = true;
+      _error = null;
+    });
+
+    try {
+      final existingProjectId = widget.projectId;
+      late final int id;
+
+      if (existingProjectId == null) {
+        if (parsedCards.isEmpty) {
+          setState(() {
+            _error = _deckMode
+                ? 'Please paste at least one valid deck line like "4 Lightning Bolt".'
+                : 'Please paste at least one card name.';
+          });
+          return;
+        }
+
+        id = await projects.createProject(
+          name: name,
+          enabledProviders: [SourceProviderId.scryfallMagicville],
+        );
+
+        final storage = ref.read(storagePathsProvider);
+        await storage.projectImagesDir(id);
+        await storage.projectThumbsDir(id);
+
+        if (_importTokensOnly) {
+          await ref
+              .read(downloadPipelineProvider)
+              .importTokensFromCardNames(id, parsedCards);
+        } else {
+          await cardRepo.insertCardsFromLines(id, parsedCards);
+          final globalDao = ref.read(globalSettingsDaoProvider);
+          await globalDao.copyBasicsToProject(id, parsedCards);
+          await globalDao.applyGlobalFramesToProject(id);
+        }
+      } else {
+        id = existingProjectId;
+
+        final database = ref.read(dbProvider);
+
+        await (database.update(database.projects)
+              ..where((t) => t.id.equals(id)))
+            .write(ProjectsCompanion(name: Value(name)));
+
+        if (parsedCards.isNotEmpty) {
+          if (_importTokensOnly) {
+            await ref
+                .read(downloadPipelineProvider)
+                .importTokensFromCardNames(id, parsedCards);
+          } else {
+            final newCardsOnly = await _removeExistingProjectCards(
+              id,
+              parsedCards,
+            );
+            if (newCardsOnly.isNotEmpty) {
+              await cardRepo.insertCardsFromLines(id, newCardsOnly);
+            }
+          }
+        }
+      }
+
+      if (!mounted) return;
+      router.go('/projects/$id');
+    } catch (e) {
+      setState(() => _error = 'Failed: $e');
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
   }
 
   Future<void> _fetchFromUrl() async {

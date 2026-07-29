@@ -22,6 +22,7 @@ import '../core/thumb_path.dart';
 
 import '../services/discard_service.dart';
 import '../services/export_service.dart';
+import '../services/version_selection_service.dart';
 import '../services/set_icon_service.dart';
 import '../services/deck_import_service.dart';
 import '../data/db/daos.dart';
@@ -141,6 +142,13 @@ final deckImportServiceProvider = Provider<DeckImportService>(
 
 final globalSettingsDaoProvider = Provider<GlobalSettingsDao>((ref) {
   return GlobalSettingsDao(ref.read(dbProvider));
+});
+
+final versionSelectionServiceProvider = Provider<VersionSelectionService>((ref) {
+  return VersionSelectionService(
+    db: ref.read(dbProvider),
+    settingsDao: ref.read(globalSettingsDaoProvider),
+  );
 });
 
 final basicsProjectIdProvider = FutureProvider<int>((ref) {

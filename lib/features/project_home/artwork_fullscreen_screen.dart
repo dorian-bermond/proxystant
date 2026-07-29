@@ -175,6 +175,16 @@ class _ArtworkFullscreenScreenState
                                       widget.cardId,
                                       newValue,
                                     );
+                                    // Selecting an artwork also resolves the
+                                    // version, same as the artworks grid does.
+                                    if (newValue != null) {
+                                      await ref
+                                          .read(versionSelectionServiceProvider)
+                                          .autoSelectVersionForArtwork(
+                                            cardId: widget.cardId,
+                                            artwork: current,
+                                          );
+                                    }
                                   }
                                 : null,
                             icon: Icon(

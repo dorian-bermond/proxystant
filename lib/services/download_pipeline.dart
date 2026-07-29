@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
-import 'package:mtg_artwork_picker/core/normalize.dart';
+import '../core/normalize.dart';
 
 import '../data/db/app_database.dart' as db;
 import '../data/db/daos.dart' show PrintDataDao;

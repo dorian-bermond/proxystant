@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:drift/drift.dart';
-import 'package:mtg_artwork_picker/services/export_bundle.dart';
+import 'export_bundle.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/db/app_database.dart' as db;

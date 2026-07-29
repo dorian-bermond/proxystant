@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:collection/collection.dart';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -466,62 +464,6 @@ class _ArtworksTab extends ConsumerStatefulWidget {
 class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
   bool _adding = false;
 
-  Future<void> _autoSelectVersion(db.Artwork artwork) async {
-    final database = ref.read(dbProvider);
-    final settingsDao = ref.read(globalSettingsDaoProvider);
-
-    final defaultLang = await settingsDao.getDefaultLanguage();
-    final preferNewest = await settingsDao.getDefaultVersionNewest();
-
-    var printings = await database.printDataDao
-        .getDiscoveredPrintingsForCard(widget.card.id);
-
-    if (printings.isNotEmpty) {
-      if (preferNewest) printings = printings.reversed.toList();
-
-      final artistNorm = artwork.artist.toLowerCase().trim();
-
-      // 1. Printing whose artist set includes the artwork artist, in default lang
-      Map<String, Object?>? target = printings.firstWhereOrNull((p) {
-        if ((p['lang'] as String?) != defaultLang) return false;
-        final raw = (p['artists'] as String?) ?? '';
-        return raw.split(',').any((a) => a.toLowerCase().trim() == artistNorm);
-      });
-
-      // 2. Any printing in default language
-      target ??= printings.firstWhereOrNull(
-        (p) => (p['lang'] as String?) == defaultLang,
-      );
-
-      // 3. Any printing
-      target ??= printings.first;
-
-      final setCode = target['set_code'] as String;
-      final lang = target['lang'] as String;
-      final collectorNumber = target['collector_number'] as String?;
-
-      await database.cardsDao.setSelectedSet(
-        cardId: widget.card.id,
-        setCode: setCode,
-        lang: lang,
-        isVoid: true,
-        collectorNumber: collectorNumber,
-      );
-      await database.printDataDao.populateUsedFromPrinting(
-        cardId: widget.card.id,
-        setCode: setCode,
-        lang: lang,
-      );
-    }
-
-    // Always write the artist from the selected artwork (populateUsedFromPrinting
-    // intentionally omits it; only artwork selection should set this field).
-    await database.printDataDao.setArtistForCard(
-      widget.card.id,
-      artwork.artist,
-    );
-  }
-
   Future<void> _addCustomArtwork() async {
     if (_adding) return;
 
@@ -714,7 +656,12 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
                         : () async {
                             await database.cardsDao
                                 .setPreferredArtwork(widget.card.id, a.id);
-                            await _autoSelectVersion(a);
+                            await ref
+                                .read(versionSelectionServiceProvider)
+                                .autoSelectVersionForArtwork(
+                                  cardId: widget.card.id,
+                                  artwork: a,
+                                );
                           },
                     icon: const Icon(Icons.star),
                   ),

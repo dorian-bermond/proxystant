@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,9 +17,40 @@ class ExportScreen extends ConsumerStatefulWidget {
   ConsumerState<ExportScreen> createState() => _ExportScreenState();
 }
 
+bool get _isDesktop =>
+    Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
 class _ExportScreenState extends ConsumerState<ExportScreen> {
   bool _running = false;
   String? _status;
+
+  /// Returns the path the ZIP was written to, or null if the user cancelled.
+  Future<String?> _saveOnDesktop(List<int> zipBytes, String fileName) async {
+    const typeGroup = XTypeGroup(label: 'ZIP archive', extensions: ['zip']);
+    final location = await getSaveLocation(
+      suggestedName: fileName,
+      acceptedTypeGroups: [typeGroup],
+    );
+    if (location == null) return null;
+
+    await File(location.path).writeAsBytes(zipBytes, flush: true);
+    return location.path;
+  }
+
+  /// Writes the ZIP to a temp file first: the mobile dialog copies from a
+  /// source path rather than taking bytes.
+  Future<String?> _saveOnMobile(List<int> zipBytes, String fileName) async {
+    final tempDir = await getTemporaryDirectory();
+    final tempZipFile = File(p.join(tempDir.path, fileName));
+    await tempZipFile.writeAsBytes(zipBytes, flush: true);
+
+    return FlutterFileDialog.saveFile(
+      params: SaveFileDialogParams(
+        sourceFilePath: tempZipFile.path,
+        fileName: fileName,
+      ),
+    );
+  }
 
   Future<void> _export() async {
     final exporter = ref.read(exportServiceProvider);
@@ -38,22 +70,15 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
         return;
       }
 
-      final tempDir = await getTemporaryDirectory();
-      final tempZipPath = p.join(
-        tempDir.path,
-        'project_${widget.projectId}.zip',
-      );
+      final fileName = 'project_${widget.projectId}.zip';
 
-      final tempZipFile = File(tempZipPath);
-      await tempZipFile.writeAsBytes(zipBytes, flush: true);
+      // flutter_file_dialog is Android/iOS-only, so desktop goes through
+      // file_selector's native save dialog instead.
+      final savedPath = _isDesktop
+          ? await _saveOnDesktop(zipBytes, fileName)
+          : await _saveOnMobile(zipBytes, fileName);
 
-      final savedPath = await FlutterFileDialog.saveFile(
-        params: SaveFileDialogParams(
-          sourceFilePath: tempZipFile.path,
-          fileName: 'project_${widget.projectId}.zip',
-        ),
-      );
-
+      if (!mounted) return;
       setState(() {
         _status = savedPath == null
             ? 'Export cancelled.'

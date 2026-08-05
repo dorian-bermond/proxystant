@@ -63,6 +63,7 @@ dependencies:
   flutter_file_dialog: ^3.0.2
 
   flutter_foreground_task: ^9.0.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -90,6 +91,9 @@ flutter:
   uses-material-design: true
 
   assets:
+    # Bundled so the update check can read the running app's version without
+    # duplicating it in a Dart constant.
+    - pubspec.yaml
     - assets/templates/Gavin/Retro/
     - assets/templates/Investigamer/Colorshifted/
     - assets/templates/Investigamer/Crimson Fang/

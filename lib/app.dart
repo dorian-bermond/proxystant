@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'features/updates/update_banner.dart';
 import 'providers/providers.dart';
 
 class App extends ConsumerWidget {
@@ -39,7 +40,7 @@ class App extends ConsumerWidget {
         color: Theme.of(context).scaffoldBackgroundColor,
         child: SafeArea(
           top: false,
-          child: child ?? const SizedBox.shrink(),
+          child: UpdateBanner(child: child ?? const SizedBox.shrink()),
         ),
       ),
       routerConfig: router,

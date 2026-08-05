@@ -1,9 +1,36 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// Release signing credentials come from android/key.properties on a developer
+// machine, or from environment variables in CI (the workflow materializes the
+// keystore from a repository secret). Both are absent for anyone who just
+// cloned the repo, and the release build falls back to the debug keys then, so
+// `flutter build apk --release` keeps working without the signing material.
+val keystoreProperties = Properties()
+rootProject.file("key.properties").let { file ->
+    if (file.exists()) FileInputStream(file).use { keystoreProperties.load(it) }
+}
+
+fun signingValue(propertyKey: String, envKey: String): String? =
+    (keystoreProperties.getProperty(propertyKey) ?: System.getenv(envKey))
+        ?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingValue("storeFile", "ANDROID_KEYSTORE_PATH")
+val releaseStorePassword = signingValue("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingValue("keyAlias", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = signingValue("keyPassword", "ANDROID_KEY_PASSWORD")
+
+val hasReleaseSigning = releaseStoreFile != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
 
 android {
     namespace = "com.example.mtg_artwork_picker"
@@ -30,11 +57,21 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 }

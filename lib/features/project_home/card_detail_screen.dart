@@ -832,7 +832,6 @@ class _ExtensionsTabState extends ConsumerState<_ExtensionsTab> {
   @override
   Widget build(BuildContext context) {
     final database = ref.read(dbProvider);
-    final iconService = ref.read(setIconServiceProvider);
     final selectedArtist = _selectedArtist;
 
     return StreamBuilder<List<db.CardDiscoveredPrinting>>(
@@ -987,24 +986,7 @@ class _ExtensionsTabState extends ConsumerState<_ExtensionsTab> {
                           child: ExpansionTile(
                             title: Row(
                               children: [
-                                FutureBuilder<Uint8List?>(
-                                  future: iconService.getIconBytes(setCode),
-                                  builder: (context, snap) {
-                                    final bytes = snap.data;
-                                    if (bytes == null) {
-                                      return const SizedBox(width: 20);
-                                    }
-                                    return SvgPicture.memory(
-                                      bytes,
-                                      width: 20,
-                                      height: 20,
-                                      colorFilter: ColorFilter.mode(
-                                        Theme.of(context).colorScheme.onSurface,
-                                        BlendMode.srcIn,
-                                      ),
-                                    );
-                                  },
-                                ),
+                                _SetIcon(setCode),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -1711,12 +1693,24 @@ class _PrintDataTabState extends ConsumerState<_PrintDataTab> {
                             border: OutlineInputBorder(),
                           ),
                           hint: const Text('Select set'),
+                          // Lets each row fill the field's width, so the symbol
+                          // can sit against the right edge and the name has a
+                          // bounded width to ellipsize within.
+                          isExpanded: true,
                           items: knownSets.entries.map((e) {
                             return DropdownMenuItem(
                               value: e.key,
-                              child: Text(
-                                '${e.key.toUpperCase()} — ${e.value}',
-                                overflow: TextOverflow.ellipsis,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${e.key.toUpperCase()} — ${e.value}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _SetIcon(e.key),
+                                ],
                               ),
                             );
                           }).toList(),
@@ -1929,6 +1923,60 @@ class _PrintDataTabState extends ConsumerState<_PrintDataTab> {
               ],
             );
           },
+        );
+      },
+    );
+  }
+}
+
+/// A set's symbol, tinted to the current text colour.
+///
+/// Holds onto the future rather than calling the service straight from
+/// [FutureBuilder]: the first lookup for a set hits the network, and rebuilding
+/// with a fresh future would drop back to the placeholder each time.
+/// Occupies its box even when there is no icon, so rows stay aligned.
+class _SetIcon extends ConsumerStatefulWidget {
+  static const double size = 20;
+
+  final String setCode;
+  const _SetIcon(this.setCode);
+
+  @override
+  ConsumerState<_SetIcon> createState() => _SetIconState();
+}
+
+class _SetIconState extends ConsumerState<_SetIcon> {
+  late Future<Uint8List?> _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _bytes = ref.read(setIconServiceProvider).getIconBytes(widget.setCode);
+  }
+
+  @override
+  void didUpdateWidget(_SetIcon old) {
+    super.didUpdateWidget(old);
+    if (old.setCode != widget.setCode) {
+      _bytes = ref.read(setIconServiceProvider).getIconBytes(widget.setCode);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: _bytes,
+      builder: (context, snap) {
+        final bytes = snap.data;
+        if (bytes == null) return const SizedBox(width: _SetIcon.size);
+        return SvgPicture.memory(
+          bytes,
+          width: _SetIcon.size,
+          height: _SetIcon.size,
+          colorFilter: ColorFilter.mode(
+            Theme.of(context).colorScheme.onSurface,
+            BlendMode.srcIn,
+          ),
         );
       },
     );

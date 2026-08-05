@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/grid_layout.dart';
 import '../../core/template_registry.dart';
 import '../../providers/providers.dart';
 import 'frame_fullscreen_page.dart';
@@ -309,10 +310,33 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
   }
 
   Widget _frameGallery(BuildContext context) {
+    // Sized like the card grids rather than to a fixed 88px, so the previews
+    // grow with the window instead of leaving a desktop full of tiny thumbnails.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = gridColumns(
+          constraints.maxWidth,
+          maxTileWidth: kFrameTileMaxWidth,
+          spacing: _frameGallerySpacing,
+          maxColumns: kFrameTileMaxColumns,
+        );
+        final tileWidth = tileWidthFor(
+          constraints.maxWidth,
+          columns,
+          spacing: _frameGallerySpacing,
+        );
+        return _frameWrap(context, tileWidth);
+      },
+    );
+  }
+
+  static const double _frameGallerySpacing = 8;
+
+  Widget _frameWrap(BuildContext context, double tileWidth) {
     final cs = Theme.of(context).colorScheme;
     return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: _frameGallerySpacing,
+      runSpacing: _frameGallerySpacing,
       children: templateRegistry.entries
           .where((e) => frameCompatible(e.value, _selectedLayouts))
           .map((e) {
@@ -328,7 +352,7 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
               _showFrameFullscreen(name, e.value.layouts, previewKey),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            width: 88,
+            width: tileWidth,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
@@ -349,7 +373,10 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
                         Image.asset(
                           previewPath,
                           fit: BoxFit.cover,
-                          cacheWidth: 176,
+                          // Was a fixed 176 for the old 88px tile; keep the 2x
+                          // oversample now that the tile grows with the window,
+                          // or the bigger previews decode blurry.
+                          cacheWidth: (tileWidth * 2).round(),
                           errorBuilder: (_, _, _) => Container(
                             color: cs.surfaceContainerHighest,
                             child: Icon(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/grid_layout.dart';
 import '../../providers/providers.dart';
 import '../../data/db/daos.dart';
 import '../../data/db/app_database.dart' as db;
@@ -174,13 +175,7 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
 
                     return GridView.builder(
                       padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 0.75,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                          ),
+                      gridDelegate: cardGridDelegate(),
                       itemCount: cards.length,
                       itemBuilder: (context, i) {
                         final c = cards[i];

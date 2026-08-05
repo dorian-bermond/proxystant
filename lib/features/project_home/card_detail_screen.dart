@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:drift/drift.dart' hide Column;
 
+import '../../core/grid_layout.dart';
 import '../../core/template_registry.dart';
 import '../../core/thumb_path.dart';
 import 'frame_fullscreen_page.dart';
@@ -549,12 +550,7 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
 
   static const _scryfallFallbackProviderId = 'scryfall_artcrop';
 
-  static const _gridDelegate = SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: 2,
-    childAspectRatio: 0.75,
-    crossAxisSpacing: 12,
-    mainAxisSpacing: 12,
-  );
+  static final _gridDelegate = cardGridDelegate();
 
   Widget _artworkCard(
     db.Artwork a,

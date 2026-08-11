@@ -30,13 +30,73 @@ const int kFrameTileMaxColumns = 10;
 /// grid arithmetic.
 const double kGridSpacing = 12;
 
+/// Largest column count offered by the "cards per row" setting. Past this the
+/// tiles are too small to tell apart on any window this app runs in.
+const int kMaxForcedColumns = 12;
+
+/// User override for how many tiles share a row, with an optional separate
+/// value for landscape. A null count means "Auto" — size tiles to the window,
+/// which is the behaviour when nothing is set.
+@immutable
+class GridColumnsSettings {
+  final int? columns;
+  final bool landscapeOverride;
+  final int? landscapeColumns;
+
+  const GridColumnsSettings({
+    this.columns,
+    this.landscapeOverride = false,
+    this.landscapeColumns,
+  });
+
+  static const auto = GridColumnsSettings();
+
+  /// The count to force for [orientation], or null to size by width.
+  int? columnsFor(Orientation orientation) {
+    final forced = landscapeOverride && orientation == Orientation.landscape
+        ? landscapeColumns
+        : columns;
+    if (forced == null || forced < 1) return null;
+    return forced;
+  }
+
+  GridColumnsSettings copyWith({
+    int? columns,
+    bool? landscapeOverride,
+    int? landscapeColumns,
+    bool clearColumns = false,
+    bool clearLandscapeColumns = false,
+  }) {
+    return GridColumnsSettings(
+      columns: clearColumns ? null : (columns ?? this.columns),
+      landscapeOverride: landscapeOverride ?? this.landscapeOverride,
+      landscapeColumns: clearLandscapeColumns
+          ? null
+          : (landscapeColumns ?? this.landscapeColumns),
+    );
+  }
+}
+
 /// Grid delegate for card-shaped tiles, sized by width rather than a fixed
 /// column count. Works for both [GridView] and [SliverGrid].
+///
+/// Pass [columns] to force that many tiles per row instead — the "cards per
+/// row" setting. Tiles then divide the width however narrow that makes them,
+/// which is the point of forcing a count.
 SliverGridDelegate cardGridDelegate({
   double maxTileWidth = kCardTileMaxWidth,
   double childAspectRatio = 0.75,
   double spacing = kGridSpacing,
+  int? columns,
 }) {
+  if (columns != null && columns >= 1) {
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: columns,
+      childAspectRatio: childAspectRatio,
+      crossAxisSpacing: spacing,
+      mainAxisSpacing: spacing,
+    );
+  }
   return SliverGridDelegateWithMaxCrossAxisExtent(
     maxCrossAxisExtent: maxTileWidth,
     childAspectRatio: childAspectRatio,
@@ -54,18 +114,21 @@ SliverGridDelegate cardGridDelegate({
 ///
 /// [availableWidth] is the space left for tiles, with surrounding padding
 /// already subtracted. Pass [maxColumns] to stop a very wide window from
-/// shrinking tiles indefinitely.
+/// shrinking tiles indefinitely, or [columns] to force an exact count (the
+/// "cards per row" setting), which overrides both the width and [maxColumns].
 int gridColumns(
   double availableWidth, {
   double maxTileWidth = kCardTileMaxWidth,
   double spacing = kGridSpacing,
   int? maxColumns,
+  int? columns,
 }) {
+  if (columns != null && columns >= 1) return columns;
   if (availableWidth <= 0 || !availableWidth.isFinite) return 1;
   final fit = (availableWidth / (maxTileWidth + spacing)).ceil();
-  final columns = fit < 1 ? 1 : fit;
-  if (maxColumns != null && columns > maxColumns) return maxColumns;
-  return columns;
+  final fitted = fit < 1 ? 1 : fit;
+  if (maxColumns != null && fitted > maxColumns) return maxColumns;
+  return fitted;
 }
 
 /// Width of a single tile once [availableWidth] is divided into [columns] with

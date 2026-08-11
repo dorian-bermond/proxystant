@@ -312,6 +312,7 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
   Widget _frameGallery(BuildContext context) {
     // Sized like the card grids rather than to a fixed 88px, so the previews
     // grow with the window instead of leaving a desktop full of tiny thumbnails.
+    final forced = forcedGridColumns(ref, context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final columns = gridColumns(
@@ -319,6 +320,7 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
           maxTileWidth: kFrameTileMaxWidth,
           spacing: _frameGallerySpacing,
           maxColumns: kFrameTileMaxColumns,
+          columns: forced,
         );
         final tileWidth = tileWidthFor(
           constraints.maxWidth,

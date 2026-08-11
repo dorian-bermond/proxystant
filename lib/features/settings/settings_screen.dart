@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/grid_layout.dart';
 import '../../data/db/daos.dart';
 import '../../providers/providers.dart';
 
@@ -106,6 +107,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ref.read(themeModeProvider.notifier).setMode(s.first),
                   ),
                 ),
+
+                const SizedBox(height: 28),
+                const Divider(),
+                const SizedBox(height: 16),
+
+                // ── Layout ────────────────────────────────────────────────
+                _sectionHeader(context, Icons.grid_view, 'Layout'),
+                const SizedBox(height: 4),
+                Text(
+                  'How many cards share a row in the cards grid, a card\'s '
+                  'artworks and the frame picker. Auto sizes tiles to the '
+                  'window.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                ..._layoutControls(context),
 
                 const SizedBox(height: 28),
                 const Divider(),
@@ -296,6 +315,62 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SizedBox(height: 32),
               ],
             ),
+    );
+  }
+
+  /// "Cards per row" plus the optional landscape override. Reads the notifier
+  /// so the grids and these controls always agree.
+  List<Widget> _layoutControls(BuildContext context) {
+    final settings = switch (ref.watch(gridColumnsProvider)) {
+      AsyncData(:final value) => value,
+      _ => GridColumnsSettings.auto,
+    };
+    final notifier = ref.read(gridColumnsProvider.notifier);
+
+    return [
+      Row(
+        children: [
+          const Expanded(child: Text('Cards per row')),
+          _columnsDropdown(
+            value: settings.columns,
+            onChanged: notifier.setColumns,
+          ),
+        ],
+      ),
+      CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        title: const Text('Different value in landscape'),
+        value: settings.landscapeOverride,
+        onChanged: (v) => notifier.setLandscapeOverride(v ?? false),
+      ),
+      if (settings.landscapeOverride)
+        Row(
+          children: [
+            const Expanded(child: Text('Cards per row (landscape)')),
+            _columnsDropdown(
+              value: settings.landscapeColumns,
+              onChanged: notifier.setLandscapeColumns,
+            ),
+          ],
+        ),
+    ];
+  }
+
+  Widget _columnsDropdown({
+    required int? value,
+    required ValueChanged<int?> onChanged,
+  }) {
+    return DropdownButton<int?>(
+      value: value,
+      items: [
+        const DropdownMenuItem<int?>(value: null, child: Text('Auto')),
+        for (var n = 1; n <= kMaxForcedColumns; n++)
+          DropdownMenuItem<int?>(value: n, child: Text('$n')),
+      ],
+      // A null selection is the real "Auto" value here, so it must not be
+      // treated as "nothing chosen".
+      onChanged: onChanged,
     );
   }
 

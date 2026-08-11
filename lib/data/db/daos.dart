@@ -1040,6 +1040,36 @@ class GlobalSettingsDao {
     await setAppSetting('default_version_order', newest ? 'newest' : 'oldest');
   }
 
+  /// Forced tiles-per-row for the card grids, or null for width-driven "Auto".
+  /// Stored as a plain integer; anything unparseable reads back as Auto.
+  Future<int?> getGridColumns() async {
+    return int.tryParse(await getAppSetting('grid_columns') ?? '');
+  }
+
+  Future<void> setGridColumns(int? columns) async {
+    await setAppSetting('grid_columns', columns?.toString() ?? '');
+  }
+
+  /// Whether landscape uses its own tiles-per-row value.
+  Future<bool> getGridColumnsLandscapeOverride() async {
+    return await getAppSetting('grid_columns_landscape_override') == '1';
+  }
+
+  Future<void> setGridColumnsLandscapeOverride(bool enabled) async {
+    await setAppSetting(
+      'grid_columns_landscape_override',
+      enabled ? '1' : '0',
+    );
+  }
+
+  Future<int?> getGridColumnsLandscape() async {
+    return int.tryParse(await getAppSetting('grid_columns_landscape') ?? '');
+  }
+
+  Future<void> setGridColumnsLandscape(int? columns) async {
+    await setAppSetting('grid_columns_landscape', columns?.toString() ?? '');
+  }
+
   /// Last-used export format: 'zip' (default) or 'folder'.
   Future<String> getExportFormatDefault() async {
     return await getAppSetting('export_format_default') ?? 'zip';

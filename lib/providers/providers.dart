@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/grid_layout.dart';
 import '../core/storage_paths.dart';
 import '../data/db/app_database.dart';
 import '../data/repositories/project_repository.dart';
@@ -70,6 +71,68 @@ class ThemeModeNotifier extends AsyncNotifier<ThemeMode> {
 final themeModeProvider = AsyncNotifierProvider<ThemeModeNotifier, ThemeMode>(
   ThemeModeNotifier.new,
 );
+
+/// Forced tiles-per-row for the card grids. Held in a notifier rather than read
+/// per screen so changing it in Settings re-lays the grids immediately.
+class GridColumnsNotifier extends AsyncNotifier<GridColumnsSettings> {
+  GlobalSettingsDao get _dao => ref.read(globalSettingsDaoProvider);
+
+  @override
+  Future<GridColumnsSettings> build() async {
+    final results = await Future.wait([
+      _dao.getGridColumns(),
+      _dao.getGridColumnsLandscapeOverride(),
+      _dao.getGridColumnsLandscape(),
+    ]);
+    return GridColumnsSettings(
+      columns: results[0] as int?,
+      landscapeOverride: results[1] as bool,
+      landscapeColumns: results[2] as int?,
+    );
+  }
+
+  GridColumnsSettings get _current => switch (state) {
+    AsyncData(:final value) => value,
+    _ => GridColumnsSettings.auto,
+  };
+
+  Future<void> setColumns(int? columns) async {
+    state = AsyncData(
+      _current.copyWith(columns: columns, clearColumns: columns == null),
+    );
+    await _dao.setGridColumns(columns);
+  }
+
+  Future<void> setLandscapeOverride(bool enabled) async {
+    state = AsyncData(_current.copyWith(landscapeOverride: enabled));
+    await _dao.setGridColumnsLandscapeOverride(enabled);
+  }
+
+  Future<void> setLandscapeColumns(int? columns) async {
+    state = AsyncData(
+      _current.copyWith(
+        landscapeColumns: columns,
+        clearLandscapeColumns: columns == null,
+      ),
+    );
+    await _dao.setGridColumnsLandscape(columns);
+  }
+}
+
+final gridColumnsProvider =
+    AsyncNotifierProvider<GridColumnsNotifier, GridColumnsSettings>(
+      GridColumnsNotifier.new,
+    );
+
+/// The forced column count to use right now, or null for width-driven sizing.
+/// Grids read this instead of the raw settings so orientation is handled once.
+int? forcedGridColumns(WidgetRef ref, BuildContext context) {
+  final settings = switch (ref.watch(gridColumnsProvider)) {
+    AsyncData(:final value) => value,
+    _ => GridColumnsSettings.auto,
+  };
+  return settings.columnsFor(MediaQuery.orientationOf(context));
+}
 
 final exportServiceProvider = Provider<ExportService>((ref) {
   return ExportService(ref.read(dbProvider));

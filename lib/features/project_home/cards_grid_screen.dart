@@ -388,7 +388,9 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
 
                     return GridView.builder(
                       padding: const EdgeInsets.all(12),
-                      gridDelegate: cardGridDelegate(),
+                      gridDelegate: cardGridDelegate(
+                        columns: forcedGridColumns(ref, context),
+                      ),
                       itemCount: cards.length,
                       itemBuilder: (context, i) {
                         final c = cards[i];

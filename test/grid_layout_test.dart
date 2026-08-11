@@ -21,8 +21,13 @@ class _Tile extends StatelessWidget {
 }
 
 /// Lays out a grid at [width] and reports how many tiles share the first row.
-Future<int> _renderedColumns(WidgetTester tester, double width) async {
-  tester.view.physicalSize = Size(width, 900);
+Future<int> _renderedColumns(
+  WidgetTester tester,
+  double width, {
+  int? columns,
+  double height = 900,
+}) async {
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
@@ -30,7 +35,7 @@ Future<int> _renderedColumns(WidgetTester tester, double width) async {
     MaterialApp(
       home: GridView.builder(
         padding: const EdgeInsets.all(12),
-        gridDelegate: cardGridDelegate(),
+        gridDelegate: cardGridDelegate(columns: columns),
         itemCount: 40,
         itemBuilder: (_, i) => const _Tile(),
       ),
@@ -148,6 +153,86 @@ void main() {
           reason: 'at window width $width',
         );
       }
+    });
+
+    testWidgets('a forced count wins over the window width', (tester) async {
+      for (final width in [_phone, _tablet, _desktop]) {
+        expect(
+          await _renderedColumns(tester, width, columns: 5),
+          5,
+          reason: 'at window width $width',
+        );
+      }
+    });
+
+    testWidgets('a forced count of 1 is honoured', (tester) async {
+      expect(await _renderedColumns(tester, _desktop, columns: 1), 1);
+    });
+  });
+
+  group('forced columns', () {
+    test('overrides the width and the maxColumns cap', () {
+      expect(gridColumns(_phone, columns: 6), 6);
+      expect(
+        gridColumns(
+          _desktop,
+          maxTileWidth: kFrameTileMaxWidth,
+          maxColumns: kFrameTileMaxColumns,
+          columns: 3,
+        ),
+        3,
+      );
+    });
+
+    test('a nonsensical count falls back to width-driven sizing', () {
+      expect(gridColumns(_phone - _cardGridPadding, columns: 0), 2);
+      expect(gridColumns(_phone - _cardGridPadding, columns: -3), 2);
+    });
+  });
+
+  group('GridColumnsSettings', () {
+    const portrait = Orientation.portrait;
+    const landscape = Orientation.landscape;
+
+    test('auto means no forced count in either orientation', () {
+      expect(GridColumnsSettings.auto.columnsFor(portrait), isNull);
+      expect(GridColumnsSettings.auto.columnsFor(landscape), isNull);
+    });
+
+    test('one value applies to both orientations by default', () {
+      const s = GridColumnsSettings(columns: 4);
+      expect(s.columnsFor(portrait), 4);
+      expect(s.columnsFor(landscape), 4);
+    });
+
+    test('the landscape value is used only when the override is on', () {
+      const off = GridColumnsSettings(columns: 3, landscapeColumns: 7);
+      expect(off.columnsFor(landscape), 3);
+
+      const on = GridColumnsSettings(
+        columns: 3,
+        landscapeOverride: true,
+        landscapeColumns: 7,
+      );
+      expect(on.columnsFor(portrait), 3);
+      expect(on.columnsFor(landscape), 7);
+    });
+
+    test('landscape can be Auto while portrait is forced', () {
+      const s = GridColumnsSettings(columns: 3, landscapeOverride: true);
+      expect(s.columnsFor(portrait), 3);
+      expect(s.columnsFor(landscape), isNull);
+    });
+
+    test('copyWith can clear a value back to Auto', () {
+      const s = GridColumnsSettings(columns: 4, landscapeColumns: 6);
+      expect(s.copyWith(clearColumns: true).columns, isNull);
+      expect(
+        s.copyWith(clearLandscapeColumns: true).landscapeColumns,
+        isNull,
+      );
+      // A plain copyWith keeps what was already there.
+      expect(s.copyWith(landscapeOverride: true).columns, 4);
     });
   });
 }

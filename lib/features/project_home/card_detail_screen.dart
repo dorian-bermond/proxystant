@@ -550,8 +550,6 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
 
   static const _scryfallFallbackProviderId = 'scryfall_artcrop';
 
-  static final _gridDelegate = cardGridDelegate();
-
   Widget _artworkCard(
     db.Artwork a,
     int globalIndex,
@@ -694,6 +692,11 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
     final database = ref.read(dbProvider);
     final discard = ref.read(discardServiceProvider);
     final thumbPath = ref.read(thumbPathProvider);
+    // Rebuilt per frame so the "cards per row" setting and orientation changes
+    // both take effect without leaving the screen.
+    final gridDelegate = cardGridDelegate(
+      columns: forcedGridColumns(ref, context),
+    );
 
     return StreamBuilder<List<db.Artwork>>(
       stream: database.artworksDao.watchArtworksForCard(
@@ -714,7 +717,7 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
             SliverPadding(
               padding: const EdgeInsets.all(12),
               sliver: SliverGrid(
-                gridDelegate: _gridDelegate,
+                gridDelegate: gridDelegate,
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     if (i == 0) {
@@ -758,7 +761,7 @@ class _ArtworksTabState extends ConsumerState<_ArtworksTab> {
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         padding: EdgeInsets.zero,
-                        gridDelegate: _gridDelegate,
+                        gridDelegate: gridDelegate,
                         itemCount: fallbackArts.length,
                         itemBuilder: (context, i) {
                           final a = fallbackArts[i];

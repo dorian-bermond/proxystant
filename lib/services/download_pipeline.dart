@@ -873,6 +873,10 @@ class DownloadPipeline {
 
         if (existingIndex >= 0) {
           faceCards.add((card, card.name, existingIndex));
+          // Backfill face_index for cards split before it existed (pre-v20).
+          if (card.faceIndex != existingIndex) {
+            await database.cardsDao.setFaceIndex(card.id, existingIndex);
+          }
           // Best-effort: fill in sibling links if not yet set for already-split cards.
           if (card.dfcSiblingId == null) {
             for (int i = 0; i < faceNames.length; i++) {
@@ -910,6 +914,7 @@ class DownloadPipeline {
             newName: faceNames[0],
             normalizedName: normalizeCardName(faceNames[0]),
           );
+          await database.cardsDao.setFaceIndex(card.id, 0);
           faceCards.add((card, faceNames[0], 0));
 
           // Create a DB card for each remaining face (insertOrIgnore).
@@ -926,7 +931,10 @@ class DownloadPipeline {
                         c.normalizedName.equals(normalizeCardName(faceName)),
                   ))
                 .getSingleOrNull();
-            if (faceCard != null) faceCards.add((faceCard, faceName, i));
+            if (faceCard != null) {
+              faceCards.add((faceCard, faceName, i));
+              await database.cardsDao.setFaceIndex(faceCard.id, i);
+            }
           }
 
           // Link all face cards as siblings (2-face DFCs only).

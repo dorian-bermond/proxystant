@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
 
+import '../../core/layout_predicate.dart';
 import 'app_database.dart';
 import 'tables.dart';
 
@@ -173,6 +174,11 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
         .write(CardsCompanion(dfcSiblingId: Value(siblingId)));
   }
 
+  Future<void> setFaceIndex(int cardId, int faceIndex) {
+    return (update(cards)..where((t) => t.id.equals(cardId)))
+        .write(CardsCompanion(faceIndex: Value(faceIndex)));
+  }
+
   Stream<List<Card>> watchCards(int projectId, {required CardFilter filter}) {
     final q = select(cards)..where((t) => t.projectId.equals(projectId));
 
@@ -214,42 +220,77 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
     return q.watch();
   }
 
-  Future<int> applyFrameToLayout({
+  /// Builds a SQL predicate (and its variables) matching cards covered by a
+  /// template layout key (e.g. 'transform_back' → layout = 'transform' AND
+  /// face_index >= 1). See layout_predicate.dart.
+  (String, List<Variable>) _layoutKeyClause(String templateKey) {
+    final pred = layoutPredicateForTemplateKey(templateKey);
+    final lp = List.filled(pred.scryfallLayouts.length, '?').join(', ');
+    var clause = 'layout IN ($lp)';
+    final vars = <Variable>[...pred.scryfallLayouts.map(Variable.new)];
+    if (pred.includeUnmappedLayouts) {
+      final mp = List.filled(mappedScryfallLayouts.length, '?').join(', ');
+      clause = '($clause OR layout IS NULL OR layout NOT IN ($mp))';
+      vars.addAll(mappedScryfallLayouts.map(Variable.new));
+    }
+    switch (pred.face) {
+      case FaceSide.front:
+        clause = '($clause) AND (face_index IS NULL OR face_index = 0)';
+      case FaceSide.back:
+        clause = '($clause) AND face_index >= 1';
+      case FaceSide.any:
+        break;
+    }
+    return ('($clause)', vars);
+  }
+
+  /// Applies a frame to all cards matching a template layout key
+  /// ('normal', 'transform_back', …), translating it to the stored Scryfall
+  /// layout plus face index.
+  Future<int> applyFrameToLayoutKey({
     required int projectId,
-    required String layout,
+    required String templateKey,
     required String frame,
     required bool overwriteAll,
   }) async {
-    final where = overwriteAll
-        ? 'project_id = ? AND layout = ?'
-        : 'project_id = ? AND layout = ? AND frame IS NULL';
+    final (clause, vars) = _layoutKeyClause(templateKey);
+    final where =
+        'project_id = ? AND $clause${overwriteAll ? '' : ' AND frame IS NULL'}';
     return customUpdate(
       'UPDATE cards SET frame = ? WHERE $where',
-      variables: [Variable(frame), Variable(projectId), Variable(layout)],
+      variables: [Variable(frame), Variable(projectId), ...vars],
       updates: {cards},
     );
   }
 
-  /// Applies a frame only to cards matching ALL of the given layouts AND types
-  /// (intersection). Used when the user selects both layout and type chips.
-  Future<int> applyFrameToLayoutAndType({
+  /// Applies a frame only to cards matching ANY of the given template layout
+  /// keys AND any of the given types (intersection of the two dimensions).
+  /// Used when the user selects both layout and type chips.
+  Future<int> applyFrameToLayoutAndTypeKeys({
     required int projectId,
-    required List<String> layouts,
+    required List<String> templateKeys,
     required List<String> types,
     required String frame,
     required bool overwriteAll,
   }) async {
-    final lp = List.filled(layouts.length, '?').join(', ');
+    final layoutClauses = <String>[];
+    final layoutVars = <Variable>[];
+    for (final key in templateKeys) {
+      final (clause, vars) = _layoutKeyClause(key);
+      layoutClauses.add(clause);
+      layoutVars.addAll(vars);
+    }
     final tp = List.filled(types.length, '?').join(', ');
-    final where = overwriteAll
-        ? 'project_id = ? AND layout IN ($lp) AND card_type IN ($tp)'
-        : 'project_id = ? AND layout IN ($lp) AND card_type IN ($tp) AND frame IS NULL';
+    final where =
+        'project_id = ? AND (${layoutClauses.join(' OR ')})'
+        ' AND card_type IN ($tp)'
+        '${overwriteAll ? '' : ' AND frame IS NULL'}';
     return customUpdate(
       'UPDATE cards SET frame = ? WHERE $where',
       variables: [
         Variable(frame),
         Variable(projectId),
-        ...layouts.map(Variable.new),
+        ...layoutVars,
         ...types.map(Variable.new),
       ],
       updates: {cards},

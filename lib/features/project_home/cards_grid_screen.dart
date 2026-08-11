@@ -301,6 +301,29 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                                     color: Colors.orange,
                                   ),
                                 ),
+
+                              // DFC badge: this card is one face of a
+                              // double-faced/split card.
+                              if (c.dfcSiblingId != null)
+                                Positioned(
+                                  top: 34,
+                                  right: 10,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black
+                                          .withValues(alpha: 0.45),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(3),
+                                      child: Icon(
+                                        Icons.flip_outlined,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         );

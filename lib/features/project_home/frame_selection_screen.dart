@@ -477,18 +477,18 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
 
       if (selectedLayouts.isNotEmpty && selectedTypes.isNotEmpty) {
         // Intersection: only cards matching BOTH a selected layout AND type.
-        totalCount += await db.cardsDao.applyFrameToLayoutAndType(
+        totalCount += await db.cardsDao.applyFrameToLayoutAndTypeKeys(
           projectId: widget.projectId,
-          layouts: selectedLayouts,
+          templateKeys: selectedLayouts,
           types: selectedTypes,
           frame: frame,
           overwriteAll: _overwriteAll,
         );
       } else {
         for (final layout in selectedLayouts) {
-          totalCount += await db.cardsDao.applyFrameToLayout(
+          totalCount += await db.cardsDao.applyFrameToLayoutKey(
             projectId: widget.projectId,
-            layout: layout,
+            templateKey: layout,
             frame: frame,
             overwriteAll: _overwriteAll,
           );

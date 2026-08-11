@@ -3,17 +3,70 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:drift/drift.dart';
-import 'export_bundle.dart';
 import 'package:path/path.dart' as p;
 
+import '../core/artwork_file.dart';
 import '../data/db/app_database.dart' as db;
 
 enum ExportMode { folder, zip }
 
-class ExportResult {
-  final int exportedCards;
+/// One artwork file in an export: where it goes and where its bytes live.
+class ExportEntry {
+  /// Path inside the export, e.g. 'frame/layout/Name (Artist) [SET] {1}.png'.
+  final String relativePath;
+
+  /// Absolute path of the artwork file on disk.
+  final String sourcePath;
+
+  final db.Card card;
+
+  /// The print_data.json entry for this card (mutable so cross-links between
+  /// DFC faces can be resolved in a post-pass).
+  final Map<String, dynamic> json;
+
+  ExportEntry({
+    required this.relativePath,
+    required this.sourcePath,
+    required this.card,
+    required this.json,
+  });
+}
+
+/// A checked card that could not be exported.
+class SkippedCard {
+  final int cardId;
+  final String name;
+  final String reason;
+  const SkippedCard({
+    required this.cardId,
+    required this.name,
+    required this.reason,
+  });
+}
+
+/// Everything an export sink needs: file list plus the print_data.json bytes.
+class ExportManifest {
+  final List<ExportEntry> entries;
+  final List<SkippedCard> skipped;
+  final Uint8List printDataJsonBytes;
+  ExportManifest({
+    required this.entries,
+    required this.skipped,
+    required this.printDataJsonBytes,
+  });
+
+  int get exportedCount => entries.length;
+}
+
+class ExportOutcome {
+  final int exported;
+  final List<SkippedCard> skipped;
   final String outputPath;
-  ExportResult({required this.exportedCards, required this.outputPath});
+  ExportOutcome({
+    required this.exported,
+    required this.skipped,
+    required this.outputPath,
+  });
 }
 
 class ExportService {
@@ -61,22 +114,8 @@ class ExportService {
     return rows.first.data['frame'] as String?;
   }
 
-  Future<Map<int, ({String? layout, String? frame})>> _loadCardMeta(
-    int projectId,
-  ) async {
-    final results = await database.customSelect(
-      'SELECT id, layout, frame FROM cards WHERE project_id = ?',
-      variables: [Variable(projectId)],
-    ).get();
-    return {
-      for (final row in results)
-        row.data['id'] as int: (
-          layout: row.data['layout'] as String?,
-          frame: row.data['frame'] as String?,
-        ),
-    };
-  }
-
+  /// Checked cards (preferred artwork AND a selected/void version — the same
+  /// definition the UI uses) joined with their preferred artwork.
   Future<List<_ExportRow>> _loadCheckedCardsWithPreferredArtwork(
     int projectId,
   ) async {
@@ -85,7 +124,11 @@ class ExportService {
 
     final query = database.select(c).join([
       innerJoin(a, a.id.equalsExp(c.preferredArtworkId)),
-    ])..where(c.projectId.equals(projectId) & c.preferredArtworkId.isNotNull());
+    ])..where(
+        c.projectId.equals(projectId) &
+            c.preferredArtworkId.isNotNull() &
+            (c.selectedSetCode.isNotNull() | c.selectedSetIsVoid.equals(true)),
+      );
 
     final rows = await query.get();
 
@@ -94,10 +137,6 @@ class ExportService {
       out.add(_ExportRow(card: row.readTable(c), artwork: row.readTable(a)));
     }
     return out;
-  }
-
-  Future<db.UsedPrintData?> _resolveUsedPrintData(int cardId) {
-    return database.printDataDao.getUsed(cardId);
   }
 
   static List<dynamic>? _parseJsonList(String? json) {
@@ -128,6 +167,8 @@ class ExportService {
       'collector_number': used?.collectorNumber ?? card.selectedCollectorNumber ?? '',
       'rarity': used?.rarity ?? '',
     };
+
+    if (card.dfcSiblingId != null) entry['face_index'] = card.faceIndex ?? 0;
 
     if (frame != null) entry['frame'] = frame;
 
@@ -177,200 +218,134 @@ class ExportService {
     return utf8.encode(encoder.convert(root));
   }
 
-  Future<ExportResult> exportCheckedCards({
+  /// Builds the full export (paths + print_data.json) without writing
+  /// anything. Missing artwork files are reported in [ExportManifest.skipped]
+  /// instead of being silently dropped. With [flatten], the
+  /// `<frame>/<layout>/` subfolders are omitted.
+  Future<ExportManifest> buildManifest({
     required int projectId,
-    required ExportMode mode,
-    required String outputPath,
+    bool flatten = false,
   }) async {
     final rows = await _loadCheckedCardsWithPreferredArtwork(projectId);
-    if (rows.isEmpty) {
-      return ExportResult(exportedCards: 0, outputPath: outputPath);
-    }
-
     final projectFrame = await _loadProjectFrame(projectId);
-    final cardMeta = await _loadCardMeta(projectId);
+
     final usedNamesByFolder = <String, Set<String>>{};
-    final jsonEntries = <Map<String, dynamic>>[];
+    final entries = <ExportEntry>[];
+    final skipped = <SkippedCard>[];
 
-    if (mode == ExportMode.folder) {
-      final dir = Directory(outputPath);
-      if (!await dir.exists()) await dir.create(recursive: true);
+    for (final r in rows) {
+      if (!await artworkFileExists(r.artwork)) {
+        skipped.add(SkippedCard(
+          cardId: r.card.id,
+          name: r.card.name,
+          reason: 'artwork file missing on disk',
+        ));
+        continue;
+      }
 
-      for (final r in rows) {
-        final artFile = File(r.artwork.localPath);
-        if (!await artFile.exists()) continue;
+      final used = await database.printDataDao.getUsed(r.card.id);
+      final ext =
+          p.extension(r.artwork.localPath).replaceFirst('.', '').toLowerCase();
+      final setLabel =
+          (used?.setCode ?? r.card.selectedSetCode ?? 'UNKNOWN').toUpperCase();
+      final collectorNumber =
+          used?.collectorNumber ?? r.card.selectedCollectorNumber;
+      final base = collectorNumber != null
+          ? '${r.card.name} (${r.artwork.artist}) [$setLabel] {$collectorNumber}'
+          : '${r.card.name} (${r.artwork.artist}) [$setLabel]';
+      final resolvedFrame = r.card.frame ?? projectFrame;
+      final folder =
+          flatten ? '' : _exportFolder(r.card.layout, resolvedFrame);
+      final folderNames =
+          usedNamesByFolder.putIfAbsent(folder, () => <String>{});
+      final fileName = _uniqueFileName(folderNames, base, ext);
+      final exportedPath = folder.isEmpty ? fileName : '$folder/$fileName';
 
-        final used = await _resolveUsedPrintData(r.card.id);
-        final ext = p.extension(artFile.path).replaceFirst('.', '').toLowerCase();
-        final setLabel = (used?.setCode ?? r.card.selectedSetCode ?? 'UNKNOWN').toUpperCase();
-        final collectorNumber = used?.collectorNumber ?? r.card.selectedCollectorNumber;
-        final base = collectorNumber != null
-            ? '${r.card.name} (${r.artwork.artist}) [$setLabel] {$collectorNumber}'
-            : '${r.card.name} (${r.artwork.artist}) [$setLabel]';
-        final meta = cardMeta[r.card.id];
-        final resolvedFrame = meta?.frame ?? projectFrame;
-        final folder = _exportFolder(meta?.layout, resolvedFrame);
-        final folderNames = usedNamesByFolder.putIfAbsent(folder, () => <String>{});
-        final exportedFileName = _uniqueFileName(folderNames, base, ext);
-
-        final subDir = Directory(p.join(dir.path, folder));
-        if (!await subDir.exists()) await subDir.create(recursive: true);
-        await artFile.copy(p.join(subDir.path, exportedFileName));
-
-        jsonEntries.add(_buildPrintDataEntry(
+      entries.add(ExportEntry(
+        relativePath: exportedPath,
+        sourcePath: r.artwork.localPath,
+        card: r.card,
+        json: _buildPrintDataEntry(
           card: r.card,
           artwork: r.artwork,
           used: used,
-          exportedFileName: '$folder/$exportedFileName',
+          exportedFileName: exportedPath,
           frame: resolvedFrame,
-        ));
-      }
-
-      final jsonFile = File(p.join(dir.path, 'print_data.json'));
-      await jsonFile.writeAsBytes(_encodePrintDataJson(jsonEntries), flush: true);
-
-      return ExportResult(exportedCards: jsonEntries.length, outputPath: dir.path);
-    }
-
-    // ZIP mode
-    final archive = Archive();
-
-    for (final r in rows) {
-      final artFile = File(r.artwork.localPath);
-      if (!await artFile.exists()) continue;
-
-      final used = await _resolveUsedPrintData(r.card.id);
-      final bytes = await artFile.readAsBytes();
-      final ext = p.extension(artFile.path).replaceFirst('.', '').toLowerCase();
-      final setLabel = (used?.setCode ?? r.card.selectedSetCode ?? 'UNKNOWN').toUpperCase();
-      final collectorNumber = used?.collectorNumber ?? r.card.selectedCollectorNumber;
-      final base = collectorNumber != null
-          ? '${r.card.name} (${r.artwork.artist}) [$setLabel] {$collectorNumber}'
-          : '${r.card.name} (${r.artwork.artist}) [$setLabel]';
-      final meta = cardMeta[r.card.id];
-      final resolvedFrame = meta?.frame ?? projectFrame;
-      final folder = _exportFolder(meta?.layout, resolvedFrame);
-      final folderNames = usedNamesByFolder.putIfAbsent(folder, () => <String>{});
-      final exportedFileName = _uniqueFileName(folderNames, base, ext);
-      final exportedPath = '$folder/$exportedFileName';
-
-      archive.addFile(ArchiveFile(exportedPath, bytes.length, bytes));
-
-      jsonEntries.add(_buildPrintDataEntry(
-        card: r.card,
-        artwork: r.artwork,
-        used: used,
-        exportedFileName: exportedPath,
-        frame: resolvedFrame,
+        ),
       ));
     }
 
-    final jsonBytes = _encodePrintDataJson(jsonEntries);
-    archive.addFile(ArchiveFile('print_data.json', jsonBytes.length, jsonBytes));
+    // Cross-link DFC faces that both made it into the export.
+    final pathByCardId = {
+      for (final e in entries) e.card.id: e.relativePath,
+    };
+    for (final e in entries) {
+      final sib = e.card.dfcSiblingId;
+      if (sib != null && pathByCardId.containsKey(sib)) {
+        e.json['other_face_exported_file_name'] = pathByCardId[sib];
+      }
+    }
 
-    final zipFile = File(outputPath);
-    await zipFile.writeAsBytes(ZipEncoder().encode(archive), flush: true);
-
-    return ExportResult(exportedCards: jsonEntries.length, outputPath: zipFile.path);
+    return ExportManifest(
+      entries: entries,
+      skipped: skipped,
+      printDataJsonBytes:
+          _encodePrintDataJson([for (final e in entries) e.json]),
+    );
   }
 
-  Future<Uint8List> buildCheckedCardsZipBytes({required int projectId}) async {
-    final rows = await _loadCheckedCardsWithPreferredArtwork(projectId);
-    final projectFrame = await _loadProjectFrame(projectId);
-    final cardMeta = await _loadCardMeta(projectId);
-
-    final usedNamesByFolder = <String, Set<String>>{};
-    final jsonEntries = <Map<String, dynamic>>[];
+  Future<Uint8List> encodeZip(ExportManifest manifest) async {
     final archive = Archive();
-
-    for (final r in rows) {
-      final artFile = File(r.artwork.localPath);
-      if (!await artFile.exists()) continue;
-
-      final used = await _resolveUsedPrintData(r.card.id);
-      final bytes = await artFile.readAsBytes();
-      final ext = p.extension(artFile.path).replaceFirst('.', '').toLowerCase();
-      final setLabel = (used?.setCode ?? r.card.selectedSetCode ?? 'UNKNOWN').toUpperCase();
-      final collectorNumber = used?.collectorNumber ?? r.card.selectedCollectorNumber;
-      final base = collectorNumber != null
-          ? '${r.card.name} (${r.artwork.artist}) [$setLabel] {$collectorNumber}'
-          : '${r.card.name} (${r.artwork.artist}) [$setLabel]';
-      final meta = cardMeta[r.card.id];
-      final resolvedFrame = meta?.frame ?? projectFrame;
-      final folder = _exportFolder(meta?.layout, resolvedFrame);
-      final folderNames = usedNamesByFolder.putIfAbsent(folder, () => <String>{});
-      final exportedFileName = _uniqueFileName(folderNames, base, ext);
-      final exportedPath = '$folder/$exportedFileName';
-
-      archive.addFile(ArchiveFile(exportedPath, bytes.length, bytes));
-
-      jsonEntries.add(_buildPrintDataEntry(
-        card: r.card,
-        artwork: r.artwork,
-        used: used,
-        exportedFileName: exportedPath,
-        frame: resolvedFrame,
-      ));
+    for (final e in manifest.entries) {
+      final bytes = await File(e.sourcePath).readAsBytes();
+      archive.addFile(ArchiveFile(e.relativePath, bytes.length, bytes));
     }
-
-    final jsonBytes = _encodePrintDataJson(jsonEntries);
-    archive.addFile(ArchiveFile('print_data.json', jsonBytes.length, jsonBytes));
-
+    archive.addFile(ArchiveFile(
+      'print_data.json',
+      manifest.printDataJsonBytes.length,
+      manifest.printDataJsonBytes,
+    ));
     return Uint8List.fromList(ZipEncoder().encode(archive));
   }
 
-  Future<FolderExportBundle> buildCheckedCardsFolderBundle({
-    required int projectId,
-  }) async {
-    final rows = await _loadCheckedCardsWithPreferredArtwork(projectId);
-    if (rows.isEmpty) {
-      return const FolderExportBundle(exportedCards: 0, files: []);
+  Future<ExportOutcome> writeZipFile(
+    ExportManifest manifest,
+    String outputPath,
+  ) async {
+    final bytes = await encodeZip(manifest);
+    final zipFile = File(outputPath);
+    await zipFile.writeAsBytes(bytes, flush: true);
+    return ExportOutcome(
+      exported: manifest.exportedCount,
+      skipped: manifest.skipped,
+      outputPath: zipFile.path,
+    );
+  }
+
+  /// Writes the export into [directoryPath] (created if needed). Files with
+  /// the same name are overwritten — this is what makes re-exporting into a
+  /// renderer's art directory (e.g. Proxyshop) a one-click operation.
+  Future<ExportOutcome> writeFolder(
+    ExportManifest manifest,
+    String directoryPath,
+  ) async {
+    final dir = Directory(directoryPath);
+    if (!await dir.exists()) await dir.create(recursive: true);
+
+    for (final e in manifest.entries) {
+      final target = File(p.join(dir.path, e.relativePath));
+      await target.parent.create(recursive: true);
+      await File(e.sourcePath).copy(target.path);
     }
 
-    final projectFrame = await _loadProjectFrame(projectId);
-    final cardMeta = await _loadCardMeta(projectId);
-    final usedNamesByFolder = <String, Set<String>>{};
-    final files = <ExportBinaryFile>[];
-    final jsonEntries = <Map<String, dynamic>>[];
+    final jsonFile = File(p.join(dir.path, 'print_data.json'));
+    await jsonFile.writeAsBytes(manifest.printDataJsonBytes, flush: true);
 
-    for (final r in rows) {
-      final artFile = File(r.artwork.localPath);
-      if (!await artFile.exists()) continue;
-
-      final used = await _resolveUsedPrintData(r.card.id);
-      final ext = p.extension(artFile.path).replaceFirst('.', '').toLowerCase();
-      final setLabel = (used?.setCode ?? r.card.selectedSetCode ?? 'UNKNOWN').toUpperCase();
-      final collectorNumber = used?.collectorNumber ?? r.card.selectedCollectorNumber;
-      final base = collectorNumber != null
-          ? '${r.card.name} (${r.artwork.artist}) [$setLabel] {$collectorNumber}'
-          : '${r.card.name} (${r.artwork.artist}) [$setLabel]';
-      final meta = cardMeta[r.card.id];
-      final resolvedFrame = meta?.frame ?? projectFrame;
-      final folder = _exportFolder(meta?.layout, resolvedFrame);
-      final folderNames = usedNamesByFolder.putIfAbsent(folder, () => <String>{});
-      final exportedFileName = _uniqueFileName(folderNames, base, ext);
-      final exportedPath = '$folder/$exportedFileName';
-
-      files.add(ExportBinaryFile(
-        name: exportedPath,
-        bytes: Uint8List.fromList(await artFile.readAsBytes()),
-      ));
-
-      jsonEntries.add(_buildPrintDataEntry(
-        card: r.card,
-        artwork: r.artwork,
-        used: used,
-        exportedFileName: exportedPath,
-        frame: resolvedFrame,
-      ));
-    }
-
-    files.add(ExportBinaryFile(
-      name: 'print_data.json',
-      bytes: _encodePrintDataJson(jsonEntries),
-    ));
-
-    return FolderExportBundle(exportedCards: jsonEntries.length, files: files);
+    return ExportOutcome(
+      exported: manifest.exportedCount,
+      skipped: manifest.skipped,
+      outputPath: dir.path,
+    );
   }
 }
 

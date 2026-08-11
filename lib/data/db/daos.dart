@@ -969,6 +969,34 @@ class GlobalSettingsDao {
     await setAppSetting('default_version_order', newest ? 'newest' : 'oldest');
   }
 
+  /// Last-used export format: 'zip' (default) or 'folder'.
+  Future<String> getExportFormatDefault() async {
+    return await getAppSetting('export_format_default') ?? 'zip';
+  }
+
+  Future<void> setExportFormatDefault(String format) async {
+    await setAppSetting('export_format_default', format);
+  }
+
+  /// Whether folder/zip exports flatten the `frame/layout/` subfolders.
+  Future<bool> getExportFlatten() async {
+    return await getAppSetting('export_flatten') == '1';
+  }
+
+  Future<void> setExportFlatten(bool flatten) async {
+    await setAppSetting('export_flatten', flatten ? '1' : '0');
+  }
+
+  /// Remembered folder-export destination for a project (e.g. a Proxyshop
+  /// art/ directory).
+  Future<String?> getProjectExportDir(int projectId) {
+    return getAppSetting('export_dir_$projectId');
+  }
+
+  Future<void> setProjectExportDir(int projectId, String path) {
+    return setAppSetting('export_dir_$projectId', path);
+  }
+
   Future<int> getOrCreateBasicsProjectId() async {
     final raw = await getAppSetting('basics_project_id');
     if (raw != null) return int.parse(raw);

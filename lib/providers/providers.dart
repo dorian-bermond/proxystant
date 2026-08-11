@@ -20,6 +20,7 @@ import '../services/download_pipeline.dart';
 
 import '../core/thumb_path.dart';
 
+import '../services/bulk_card_actions_service.dart';
 import '../services/discard_service.dart';
 import '../services/export_readiness_service.dart';
 import '../services/export_service.dart';
@@ -159,6 +160,13 @@ final versionSelectionServiceProvider = Provider<VersionSelectionService>((ref) 
   return VersionSelectionService(
     db: ref.read(dbProvider),
     settingsDao: ref.read(globalSettingsDaoProvider),
+  );
+});
+
+final bulkCardActionsServiceProvider = Provider<BulkCardActionsService>((ref) {
+  return BulkCardActionsService(
+    database: ref.read(dbProvider),
+    versionSelection: ref.read(versionSelectionServiceProvider),
   );
 });
 

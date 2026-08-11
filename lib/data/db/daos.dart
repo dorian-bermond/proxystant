@@ -204,7 +204,10 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
   Future<void> clearImportHints(int cardId) =>
       setImportHints(cardId, null, null);
 
-  Stream<List<Card>> watchCards(int projectId, {required CardFilter filter}) {
+  SimpleSelectStatement<$CardsTable, Card> _filteredCardsQuery(
+    int projectId, {
+    required CardFilter filter,
+  }) {
     final q = select(cards)..where((t) => t.projectId.equals(projectId));
 
     switch (filter) {
@@ -242,7 +245,18 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
     }
 
     q.orderBy([(t) => OrderingTerm(expression: t.name)]);
-    return q.watch();
+    return q;
+  }
+
+  Stream<List<Card>> watchCards(int projectId, {required CardFilter filter}) {
+    return _filteredCardsQuery(projectId, filter: filter).watch();
+  }
+
+  Future<List<Card>> getCardsFiltered(
+    int projectId, {
+    required CardFilter filter,
+  }) {
+    return _filteredCardsQuery(projectId, filter: filter).get();
   }
 
   /// Builds a SQL predicate (and its variables) matching cards covered by a
@@ -513,6 +527,34 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
       ),
     );
   }
+
+  /// Bulk uncheck: clears artwork choice, selected version and all flavor
+  /// state for the given cards. Returns the number of affected rows.
+  Future<int> uncheckCards(List<int> cardIds) async {
+    if (cardIds.isEmpty) return 0;
+    var affected = 0;
+    // Chunk IN-lists to stay well below SQLite's bound-variable limit.
+    const chunkSize = 500;
+    for (var i = 0; i < cardIds.length; i += chunkSize) {
+      final chunk = cardIds.skip(i).take(chunkSize).toList();
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      affected += await customUpdate(
+        'UPDATE cards SET'
+        ' preferred_artwork_id = NULL,'
+        ' selected_extension_set = NULL,'
+        ' selected_extension_lang = NULL,'
+        ' selected_extension_is_void = 0,'
+        ' selected_collector_number = NULL,'
+        ' selected_flavor_text_id = NULL,'
+        ' custom_flavor_text = NULL,'
+        ' no_flavor_text = 0'
+        ' WHERE id IN ($placeholders)',
+        variables: chunk.map(Variable.new).toList(),
+        updates: {cards},
+      );
+    }
+    return affected;
+  }
 }
 
 @DriftAccessor(tables: [CardDiscoveredPrintings])
@@ -635,6 +677,23 @@ class ArtworksDao extends DatabaseAccessor<AppDatabase>
             (t) => t.cardId.equals(cardId) & t.isDiscarded.equals(false),
           ))
         .get();
+  }
+
+  /// Which of the given cards have at least one non-discarded artwork.
+  Future<Set<int>> getCardIdsWithArtworks(List<int> cardIds) async {
+    final result = <int>{};
+    const chunkSize = 500;
+    for (var i = 0; i < cardIds.length; i += chunkSize) {
+      final chunk = cardIds.skip(i).take(chunkSize).toList();
+      final rows = await (selectOnly(artworks, distinct: true)
+            ..addColumns([artworks.cardId])
+            ..where(
+              artworks.cardId.isIn(chunk) & artworks.isDiscarded.equals(false),
+            ))
+          .get();
+      result.addAll(rows.map((r) => r.read(artworks.cardId)!));
+    }
+    return result;
   }
 
   Future<Artwork?> getById(int artworkId) {

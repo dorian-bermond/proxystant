@@ -5,9 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/grid_layout.dart';
+import '../../core/progress_dialog.dart';
 import '../../providers/providers.dart';
 import '../../data/db/daos.dart';
 import '../../data/db/app_database.dart' as db;
+
+enum _BulkAction { autoSelectVersions, checkAll, uncheckAll }
 
 class CardsGridScreen extends ConsumerStatefulWidget {
   final int projectId;
@@ -22,11 +25,172 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String? _layoutFilter;
+  bool _bulkRunning = false;
+
+  /// Latest layout map from the stream, reused by bulk actions so they see
+  /// exactly the same filtered subset as the grid.
+  Map<int, String?> _latestLayoutMap = {};
 
   @override
   void dispose() {
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  /// The in-memory part of the grid filter (search + layout), applied on top
+  /// of the DB-side [CardFilter].
+  List<db.Card> _applyClientFilters(
+    List<db.Card> cards,
+    Map<int, String?> layoutMap,
+  ) {
+    final query = _searchQuery.trim().toLowerCase();
+    final lf = _layoutFilter;
+    return cards.where((c) {
+      if (query.isNotEmpty && !c.name.toLowerCase().contains(query)) {
+        return false;
+      }
+      if (lf != null && layoutMap[c.id] != lf) return false;
+      return true;
+    }).toList();
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _runBulkAction(_BulkAction action) async {
+    final database = ref.read(dbProvider);
+    final bulk = ref.read(bulkCardActionsServiceProvider);
+
+    // Snapshot the currently visible subset (DB filter + search + layout).
+    final dbCards = await database.cardsDao
+        .getCardsFiltered(widget.projectId, filter: _filter);
+    if (!mounted) return;
+    final cards = _applyClientFilters(dbCards, _latestLayoutMap);
+    if (cards.isEmpty) {
+      _snack('No cards match the current filter.');
+      return;
+    }
+
+    bool hasVersion(db.Card c) =>
+        c.selectedSetCode != null || c.selectedSetIsVoid;
+
+    setState(() => _bulkRunning = true);
+    try {
+      switch (action) {
+        case _BulkAction.autoSelectVersions:
+          final affected = cards
+              .where((c) => c.preferredArtworkId != null && !hasVersion(c))
+              .length;
+          if (affected == 0) {
+            _snack('No cards with artwork and no version in this view.');
+            return;
+          }
+          final ok = await _confirm(
+            title: 'Auto-select versions',
+            message:
+                'Auto-select a version for $affected card(s)? Cards with a '
+                'version already chosen are skipped.',
+          );
+          if (!ok || !mounted) return;
+          final done = await runWithProgressDialog<int>(
+            context: context,
+            title: 'Auto-selecting versions…',
+            task: (report) => bulk.autoSelectVersions(
+              cards,
+              onProgress: report,
+            ),
+          );
+          if (mounted) _snack('Versions selected for $done card(s).');
+
+        case _BulkAction.checkAll:
+          final candidateIds = cards
+              .where((c) => c.preferredArtworkId == null || !hasVersion(c))
+              .map((c) => c.id)
+              .toList();
+          if (candidateIds.isEmpty) {
+            _snack('All cards in this view are already checked.');
+            return;
+          }
+          final withArt = await database.artworksDao
+              .getCardIdsWithArtworks(candidateIds);
+          final skipCount = candidateIds.length - withArt.length;
+          if (!mounted) return;
+          final ok = await _confirm(
+            title: 'Check all',
+            message:
+                'Check ${withArt.length} card(s)? The first downloaded '
+                'artwork is selected and a version auto-picked.'
+                '${skipCount > 0 ? '\n$skipCount card(s) without any artwork will be skipped.' : ''}',
+          );
+          if (!ok || !mounted) return;
+          final done = await runWithProgressDialog<int>(
+            context: context,
+            title: 'Checking cards…',
+            task: (report) => bulk.checkAll(cards, onProgress: report),
+          );
+          if (mounted) {
+            _snack(
+              'Checked $done card(s)'
+              '${skipCount > 0 ? ', $skipCount skipped (no artwork)' : ''}.',
+            );
+          }
+
+        case _BulkAction.uncheckAll:
+          final ok = await _confirm(
+            title: 'Uncheck all',
+            message:
+                'Uncheck ${cards.length} card(s)? This clears the artwork '
+                'choice, version AND flavor-text selections.',
+            destructive: true,
+          );
+          if (!ok || !mounted) return;
+          final done = await bulk.uncheckAll(
+            cards.map((c) => c.id).toList(),
+          );
+          if (mounted) _snack('Unchecked $done card(s).');
+      }
+    } catch (e) {
+      if (mounted) _snack('Bulk action failed: $e');
+    } finally {
+      if (mounted) setState(() => _bulkRunning = false);
+    }
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String message,
+    bool destructive = false,
+  }) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final scheme = Theme.of(dialogContext).colorScheme;
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: destructive
+                  ? FilledButton.styleFrom(
+                      backgroundColor: scheme.error,
+                      foregroundColor: scheme.onError,
+                    )
+                  : null,
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(title),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
   }
 
   @override
@@ -54,6 +218,36 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                 },
               );
             },
+          ),
+          PopupMenuButton<_BulkAction>(
+            enabled: !_bulkRunning,
+            tooltip: 'Bulk actions (current filter)',
+            onSelected: _runBulkAction,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _BulkAction.autoSelectVersions,
+                child: ListTile(
+                  leading: Icon(Icons.auto_fix_high_outlined),
+                  title: Text('Auto-select versions'),
+                  subtitle: Text('Cards with artwork, no version'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _BulkAction.checkAll,
+                child: ListTile(
+                  leading: Icon(Icons.check_circle_outline),
+                  title: Text('Check all'),
+                  subtitle: Text('Pick first artwork + version'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _BulkAction.uncheckAll,
+                child: ListTile(
+                  leading: Icon(Icons.remove_done),
+                  title: Text('Uncheck all…'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -157,18 +351,12 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                   .watchLayoutMapForProject(widget.projectId),
               builder: (context, layoutMapSnap) {
                 final layoutMap = layoutMapSnap.data ?? {};
+                _latestLayoutMap = layoutMap;
                 return StreamBuilder<List<db.Card>>(
                   stream: cardRepo.watchCards(widget.projectId, _filter),
                   builder: (context, snapshot) {
                     final allCards = snapshot.data ?? const [];
-                    final query = _searchQuery.trim().toLowerCase();
-                    final lf = _layoutFilter;
-                    final cards = allCards.where((c) {
-                      if (query.isNotEmpty &&
-                          !c.name.toLowerCase().contains(query)) return false;
-                      if (lf != null && layoutMap[c.id] != lf) return false;
-                      return true;
-                    }).toList();
+                    final cards = _applyClientFilters(allCards, layoutMap);
                     if (cards.isEmpty) {
                       return const Center(child: Text('No cards found.'));
                     }

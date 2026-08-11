@@ -733,6 +733,39 @@ class $CardsTable extends Cards with TableInfo<$CardsTable, Card> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _faceIndexMeta = const VerificationMeta(
+    'faceIndex',
+  );
+  @override
+  late final GeneratedColumn<int> faceIndex = GeneratedColumn<int>(
+    'face_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _importSetHintMeta = const VerificationMeta(
+    'importSetHint',
+  );
+  @override
+  late final GeneratedColumn<String> importSetHint = GeneratedColumn<String>(
+    'import_set_hint',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _importCnHintMeta = const VerificationMeta(
+    'importCnHint',
+  );
+  @override
+  late final GeneratedColumn<String> importCnHint = GeneratedColumn<String>(
+    'import_cn_hint',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -753,6 +786,9 @@ class $CardsTable extends Cards with TableInfo<$CardsTable, Card> {
     isUpToDate,
     selectedCollectorNumber,
     dfcSiblingId,
+    faceIndex,
+    importSetHint,
+    importCnHint,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -910,6 +946,30 @@ class $CardsTable extends Cards with TableInfo<$CardsTable, Card> {
         ),
       );
     }
+    if (data.containsKey('face_index')) {
+      context.handle(
+        _faceIndexMeta,
+        faceIndex.isAcceptableOrUnknown(data['face_index']!, _faceIndexMeta),
+      );
+    }
+    if (data.containsKey('import_set_hint')) {
+      context.handle(
+        _importSetHintMeta,
+        importSetHint.isAcceptableOrUnknown(
+          data['import_set_hint']!,
+          _importSetHintMeta,
+        ),
+      );
+    }
+    if (data.containsKey('import_cn_hint')) {
+      context.handle(
+        _importCnHintMeta,
+        importCnHint.isAcceptableOrUnknown(
+          data['import_cn_hint']!,
+          _importCnHintMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -991,6 +1051,18 @@ class $CardsTable extends Cards with TableInfo<$CardsTable, Card> {
         DriftSqlType.int,
         data['${effectivePrefix}dfc_sibling_id'],
       ),
+      faceIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}face_index'],
+      ),
+      importSetHint: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_set_hint'],
+      ),
+      importCnHint: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}import_cn_hint'],
+      ),
     );
   }
 
@@ -1019,6 +1091,9 @@ class Card extends DataClass implements Insertable<Card> {
   final bool? isUpToDate;
   final String? selectedCollectorNumber;
   final int? dfcSiblingId;
+  final int? faceIndex;
+  final String? importSetHint;
+  final String? importCnHint;
   const Card({
     required this.id,
     required this.projectId,
@@ -1038,6 +1113,9 @@ class Card extends DataClass implements Insertable<Card> {
     this.isUpToDate,
     this.selectedCollectorNumber,
     this.dfcSiblingId,
+    this.faceIndex,
+    this.importSetHint,
+    this.importCnHint,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1086,6 +1164,15 @@ class Card extends DataClass implements Insertable<Card> {
     if (!nullToAbsent || dfcSiblingId != null) {
       map['dfc_sibling_id'] = Variable<int>(dfcSiblingId);
     }
+    if (!nullToAbsent || faceIndex != null) {
+      map['face_index'] = Variable<int>(faceIndex);
+    }
+    if (!nullToAbsent || importSetHint != null) {
+      map['import_set_hint'] = Variable<String>(importSetHint);
+    }
+    if (!nullToAbsent || importCnHint != null) {
+      map['import_cn_hint'] = Variable<String>(importCnHint);
+    }
     return map;
   }
 
@@ -1133,6 +1220,15 @@ class Card extends DataClass implements Insertable<Card> {
       dfcSiblingId: dfcSiblingId == null && nullToAbsent
           ? const Value.absent()
           : Value(dfcSiblingId),
+      faceIndex: faceIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(faceIndex),
+      importSetHint: importSetHint == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importSetHint),
+      importCnHint: importCnHint == null && nullToAbsent
+          ? const Value.absent()
+          : Value(importCnHint),
     );
   }
 
@@ -1164,6 +1260,9 @@ class Card extends DataClass implements Insertable<Card> {
         json['selectedCollectorNumber'],
       ),
       dfcSiblingId: serializer.fromJson<int?>(json['dfcSiblingId']),
+      faceIndex: serializer.fromJson<int?>(json['faceIndex']),
+      importSetHint: serializer.fromJson<String?>(json['importSetHint']),
+      importCnHint: serializer.fromJson<String?>(json['importCnHint']),
     );
   }
   @override
@@ -1190,6 +1289,9 @@ class Card extends DataClass implements Insertable<Card> {
         selectedCollectorNumber,
       ),
       'dfcSiblingId': serializer.toJson<int?>(dfcSiblingId),
+      'faceIndex': serializer.toJson<int?>(faceIndex),
+      'importSetHint': serializer.toJson<String?>(importSetHint),
+      'importCnHint': serializer.toJson<String?>(importCnHint),
     };
   }
 
@@ -1212,6 +1314,9 @@ class Card extends DataClass implements Insertable<Card> {
     Value<bool?> isUpToDate = const Value.absent(),
     Value<String?> selectedCollectorNumber = const Value.absent(),
     Value<int?> dfcSiblingId = const Value.absent(),
+    Value<int?> faceIndex = const Value.absent(),
+    Value<String?> importSetHint = const Value.absent(),
+    Value<String?> importCnHint = const Value.absent(),
   }) => Card(
     id: id ?? this.id,
     projectId: projectId ?? this.projectId,
@@ -1243,6 +1348,11 @@ class Card extends DataClass implements Insertable<Card> {
         ? selectedCollectorNumber.value
         : this.selectedCollectorNumber,
     dfcSiblingId: dfcSiblingId.present ? dfcSiblingId.value : this.dfcSiblingId,
+    faceIndex: faceIndex.present ? faceIndex.value : this.faceIndex,
+    importSetHint: importSetHint.present
+        ? importSetHint.value
+        : this.importSetHint,
+    importCnHint: importCnHint.present ? importCnHint.value : this.importCnHint,
   );
   Card copyWithCompanion(CardsCompanion data) {
     return Card(
@@ -1288,6 +1398,13 @@ class Card extends DataClass implements Insertable<Card> {
       dfcSiblingId: data.dfcSiblingId.present
           ? data.dfcSiblingId.value
           : this.dfcSiblingId,
+      faceIndex: data.faceIndex.present ? data.faceIndex.value : this.faceIndex,
+      importSetHint: data.importSetHint.present
+          ? data.importSetHint.value
+          : this.importSetHint,
+      importCnHint: data.importCnHint.present
+          ? data.importCnHint.value
+          : this.importCnHint,
     );
   }
 
@@ -1311,13 +1428,16 @@ class Card extends DataClass implements Insertable<Card> {
           ..write('scryfallId: $scryfallId, ')
           ..write('isUpToDate: $isUpToDate, ')
           ..write('selectedCollectorNumber: $selectedCollectorNumber, ')
-          ..write('dfcSiblingId: $dfcSiblingId')
+          ..write('dfcSiblingId: $dfcSiblingId, ')
+          ..write('faceIndex: $faceIndex, ')
+          ..write('importSetHint: $importSetHint, ')
+          ..write('importCnHint: $importCnHint')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     id,
     projectId,
     name,
@@ -1336,7 +1456,10 @@ class Card extends DataClass implements Insertable<Card> {
     isUpToDate,
     selectedCollectorNumber,
     dfcSiblingId,
-  );
+    faceIndex,
+    importSetHint,
+    importCnHint,
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -1358,7 +1481,10 @@ class Card extends DataClass implements Insertable<Card> {
           other.scryfallId == this.scryfallId &&
           other.isUpToDate == this.isUpToDate &&
           other.selectedCollectorNumber == this.selectedCollectorNumber &&
-          other.dfcSiblingId == this.dfcSiblingId);
+          other.dfcSiblingId == this.dfcSiblingId &&
+          other.faceIndex == this.faceIndex &&
+          other.importSetHint == this.importSetHint &&
+          other.importCnHint == this.importCnHint);
 }
 
 class CardsCompanion extends UpdateCompanion<Card> {
@@ -1380,6 +1506,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
   final Value<bool?> isUpToDate;
   final Value<String?> selectedCollectorNumber;
   final Value<int?> dfcSiblingId;
+  final Value<int?> faceIndex;
+  final Value<String?> importSetHint;
+  final Value<String?> importCnHint;
   const CardsCompanion({
     this.id = const Value.absent(),
     this.projectId = const Value.absent(),
@@ -1399,6 +1528,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
     this.isUpToDate = const Value.absent(),
     this.selectedCollectorNumber = const Value.absent(),
     this.dfcSiblingId = const Value.absent(),
+    this.faceIndex = const Value.absent(),
+    this.importSetHint = const Value.absent(),
+    this.importCnHint = const Value.absent(),
   });
   CardsCompanion.insert({
     this.id = const Value.absent(),
@@ -1419,6 +1551,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
     this.isUpToDate = const Value.absent(),
     this.selectedCollectorNumber = const Value.absent(),
     this.dfcSiblingId = const Value.absent(),
+    this.faceIndex = const Value.absent(),
+    this.importSetHint = const Value.absent(),
+    this.importCnHint = const Value.absent(),
   }) : projectId = Value(projectId),
        name = Value(name),
        normalizedName = Value(normalizedName);
@@ -1441,6 +1576,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
     Expression<bool>? isUpToDate,
     Expression<String>? selectedCollectorNumber,
     Expression<int>? dfcSiblingId,
+    Expression<int>? faceIndex,
+    Expression<String>? importSetHint,
+    Expression<String>? importCnHint,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1465,6 +1603,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
       if (selectedCollectorNumber != null)
         'selected_collector_number': selectedCollectorNumber,
       if (dfcSiblingId != null) 'dfc_sibling_id': dfcSiblingId,
+      if (faceIndex != null) 'face_index': faceIndex,
+      if (importSetHint != null) 'import_set_hint': importSetHint,
+      if (importCnHint != null) 'import_cn_hint': importCnHint,
     });
   }
 
@@ -1487,6 +1628,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
     Value<bool?>? isUpToDate,
     Value<String?>? selectedCollectorNumber,
     Value<int?>? dfcSiblingId,
+    Value<int?>? faceIndex,
+    Value<String?>? importSetHint,
+    Value<String?>? importCnHint,
   }) {
     return CardsCompanion(
       id: id ?? this.id,
@@ -1508,6 +1652,9 @@ class CardsCompanion extends UpdateCompanion<Card> {
       selectedCollectorNumber:
           selectedCollectorNumber ?? this.selectedCollectorNumber,
       dfcSiblingId: dfcSiblingId ?? this.dfcSiblingId,
+      faceIndex: faceIndex ?? this.faceIndex,
+      importSetHint: importSetHint ?? this.importSetHint,
+      importCnHint: importCnHint ?? this.importCnHint,
     );
   }
 
@@ -1574,6 +1721,15 @@ class CardsCompanion extends UpdateCompanion<Card> {
     if (dfcSiblingId.present) {
       map['dfc_sibling_id'] = Variable<int>(dfcSiblingId.value);
     }
+    if (faceIndex.present) {
+      map['face_index'] = Variable<int>(faceIndex.value);
+    }
+    if (importSetHint.present) {
+      map['import_set_hint'] = Variable<String>(importSetHint.value);
+    }
+    if (importCnHint.present) {
+      map['import_cn_hint'] = Variable<String>(importCnHint.value);
+    }
     return map;
   }
 
@@ -1597,7 +1753,10 @@ class CardsCompanion extends UpdateCompanion<Card> {
           ..write('scryfallId: $scryfallId, ')
           ..write('isUpToDate: $isUpToDate, ')
           ..write('selectedCollectorNumber: $selectedCollectorNumber, ')
-          ..write('dfcSiblingId: $dfcSiblingId')
+          ..write('dfcSiblingId: $dfcSiblingId, ')
+          ..write('faceIndex: $faceIndex, ')
+          ..write('importSetHint: $importSetHint, ')
+          ..write('importCnHint: $importCnHint')
           ..write(')'))
         .toString();
   }
@@ -6262,6 +6421,9 @@ typedef $$CardsTableCreateCompanionBuilder =
       Value<bool?> isUpToDate,
       Value<String?> selectedCollectorNumber,
       Value<int?> dfcSiblingId,
+      Value<int?> faceIndex,
+      Value<String?> importSetHint,
+      Value<String?> importCnHint,
     });
 typedef $$CardsTableUpdateCompanionBuilder =
     CardsCompanion Function({
@@ -6283,6 +6445,9 @@ typedef $$CardsTableUpdateCompanionBuilder =
       Value<bool?> isUpToDate,
       Value<String?> selectedCollectorNumber,
       Value<int?> dfcSiblingId,
+      Value<int?> faceIndex,
+      Value<String?> importSetHint,
+      Value<String?> importCnHint,
     });
 
 class $$CardsTableFilterComposer extends Composer<_$AppDatabase, $CardsTable> {
@@ -6380,6 +6545,21 @@ class $$CardsTableFilterComposer extends Composer<_$AppDatabase, $CardsTable> {
 
   ColumnFilters<int> get dfcSiblingId => $composableBuilder(
     column: $table.dfcSiblingId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get faceIndex => $composableBuilder(
+    column: $table.faceIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importSetHint => $composableBuilder(
+    column: $table.importSetHint,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get importCnHint => $composableBuilder(
+    column: $table.importCnHint,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -6482,6 +6662,21 @@ class $$CardsTableOrderingComposer
     column: $table.dfcSiblingId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get faceIndex => $composableBuilder(
+    column: $table.faceIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importSetHint => $composableBuilder(
+    column: $table.importSetHint,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get importCnHint => $composableBuilder(
+    column: $table.importCnHint,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CardsTableAnnotationComposer
@@ -6570,6 +6765,19 @@ class $$CardsTableAnnotationComposer
     column: $table.dfcSiblingId,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get faceIndex =>
+      $composableBuilder(column: $table.faceIndex, builder: (column) => column);
+
+  GeneratedColumn<String> get importSetHint => $composableBuilder(
+    column: $table.importSetHint,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get importCnHint => $composableBuilder(
+    column: $table.importCnHint,
+    builder: (column) => column,
+  );
 }
 
 class $$CardsTableTableManager
@@ -6618,6 +6826,9 @@ class $$CardsTableTableManager
                 Value<bool?> isUpToDate = const Value.absent(),
                 Value<String?> selectedCollectorNumber = const Value.absent(),
                 Value<int?> dfcSiblingId = const Value.absent(),
+                Value<int?> faceIndex = const Value.absent(),
+                Value<String?> importSetHint = const Value.absent(),
+                Value<String?> importCnHint = const Value.absent(),
               }) => CardsCompanion(
                 id: id,
                 projectId: projectId,
@@ -6637,6 +6848,9 @@ class $$CardsTableTableManager
                 isUpToDate: isUpToDate,
                 selectedCollectorNumber: selectedCollectorNumber,
                 dfcSiblingId: dfcSiblingId,
+                faceIndex: faceIndex,
+                importSetHint: importSetHint,
+                importCnHint: importCnHint,
               ),
           createCompanionCallback:
               ({
@@ -6658,6 +6872,9 @@ class $$CardsTableTableManager
                 Value<bool?> isUpToDate = const Value.absent(),
                 Value<String?> selectedCollectorNumber = const Value.absent(),
                 Value<int?> dfcSiblingId = const Value.absent(),
+                Value<int?> faceIndex = const Value.absent(),
+                Value<String?> importSetHint = const Value.absent(),
+                Value<String?> importCnHint = const Value.absent(),
               }) => CardsCompanion.insert(
                 id: id,
                 projectId: projectId,
@@ -6677,6 +6894,9 @@ class $$CardsTableTableManager
                 isUpToDate: isUpToDate,
                 selectedCollectorNumber: selectedCollectorNumber,
                 dfcSiblingId: dfcSiblingId,
+                faceIndex: faceIndex,
+                importSetHint: importSetHint,
+                importCnHint: importCnHint,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

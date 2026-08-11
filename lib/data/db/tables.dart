@@ -39,6 +39,14 @@ class Cards extends Table {
   TextColumn get selectedCollectorNumber => text().nullable()();
   // For DFC cards: points to the card row representing the other face.
   IntColumn get dfcSiblingId => integer().nullable()();
+  // 0-based face index for split/DFC cards. NULL = single-faced or pre-v20 row
+  // (treated as front); backfilled by Fetch Data.
+  IntColumn get faceIndex => integer().nullable()();
+  // Set-code / collector-number hint captured at deck import ("4 Bolt (M11) 149").
+  // Applied once printings are discovered, only if no version is selected yet;
+  // cleared after a successful apply.
+  TextColumn get importSetHint => text().nullable()();
+  TextColumn get importCnHint => text().nullable()();
 }
 
 class CardDiscoveredSets extends Table {

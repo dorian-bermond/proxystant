@@ -21,6 +21,7 @@ import '../services/download_pipeline.dart';
 import '../core/thumb_path.dart';
 
 import '../services/discard_service.dart';
+import '../services/export_readiness_service.dart';
 import '../services/export_service.dart';
 import '../services/version_selection_service.dart';
 import '../services/update_service.dart';
@@ -70,6 +71,10 @@ final themeModeProvider = AsyncNotifierProvider<ThemeModeNotifier, ThemeMode>(
 
 final exportServiceProvider = Provider<ExportService>((ref) {
   return ExportService(ref.read(dbProvider));
+});
+
+final exportReadinessServiceProvider = Provider<ExportReadinessService>((ref) {
+  return ExportReadinessService(ref.read(dbProvider));
 });
 
 final dbProvider = Provider<AppDatabase>((ref) {

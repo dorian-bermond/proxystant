@@ -32,10 +32,47 @@ class ProjectsDao extends DatabaseAccessor<AppDatabase>
   }
 
   Future<void> deleteProjectById(int projectId) async {
-    await (delete(
-      projectSources,
-    )..where((t) => t.projectId.equals(projectId))).go();
-    await (delete(projects)..where((t) => t.id.equals(projectId))).go();
+    await transaction(() async {
+      // Card children first (the subquery reads cards, so cards go last).
+      const cardSub = 'card_id IN (SELECT id FROM cards WHERE project_id = ?)';
+      Future<void> deleteChildren(String table, TableInfo info) {
+        return db.customUpdate(
+          'DELETE FROM $table WHERE $cardSub',
+          variables: [Variable(projectId)],
+          updates: {info},
+          updateKind: UpdateKind.delete,
+        );
+      }
+
+      await deleteChildren('artworks', db.artworks);
+      await deleteChildren('flavor_text_options', db.flavorTextOptions);
+      await deleteChildren('card_discovered_sets', db.cardDiscoveredSets);
+      await deleteChildren(
+        'card_discovered_printings',
+        db.cardDiscoveredPrintings,
+      );
+      await deleteChildren('card_print_data', db.cardPrintData);
+      await deleteChildren('card_used_print_data', db.cardUsedPrintData);
+      // Raw frame-mapping tables (no Drift watchers).
+      await customStatement(
+        'DELETE FROM project_layout_frames WHERE project_id = ?',
+        [projectId],
+      );
+      await customStatement(
+        'DELETE FROM project_type_frames WHERE project_id = ?',
+        [projectId],
+      );
+      await db.customUpdate(
+        'DELETE FROM cards WHERE project_id = ?',
+        variables: [Variable(projectId)],
+        updates: {db.cards},
+        updateKind: UpdateKind.delete,
+      );
+      await (delete(
+        projectSources,
+      )..where((t) => t.projectId.equals(projectId))).go();
+      await (delete(projects)..where((t) => t.id.equals(projectId))).go();
+    });
   }
 
   Future<void> setFrame(int projectId, String? frame) async {

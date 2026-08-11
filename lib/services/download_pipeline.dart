@@ -15,6 +15,7 @@ import '../services/magicville_client.dart';
 import '../services/scryfall_client.dart';
 import '../services/scryfall_artwork_source.dart';
 import '../services/set_icon_service.dart';
+import '../services/version_selection_service.dart';
 
 class DownloadProgress {
   final int totalCards;
@@ -112,6 +113,7 @@ class DownloadPipeline {
   final ImageStore imageStore;
   final ArtworkRepository artworkRepo;
   final SetIconService setIconService;
+  final VersionSelectionService versionSelection;
 
   DownloadPipeline({
     required this.database,
@@ -120,6 +122,7 @@ class DownloadPipeline {
     required this.imageStore,
     required this.artworkRepo,
     required this.setIconService,
+    required this.versionSelection,
   });
 
   static final _dfcSeparator = RegExp(r'\s*(?://|\|\||\\\\)\s*');
@@ -934,6 +937,16 @@ class DownloadPipeline {
             if (faceCard != null) {
               faceCards.add((faceCard, faceName, i));
               await database.cardsDao.setFaceIndex(faceCard.id, i);
+              // Propagate the deck-import version hint to the new face row so
+              // each face can resolve it against its own printings.
+              if (card.importSetHint != null &&
+                  faceCard.importSetHint == null) {
+                await database.cardsDao.setImportHints(
+                  faceCard.id,
+                  card.importSetHint,
+                  card.importCnHint,
+                );
+              }
             }
           }
 
@@ -1060,6 +1073,28 @@ class DownloadPipeline {
       if (fresh != null && fresh.preferredArtworkId == null && arts.length == 1) {
         await database.cardsDao.setPreferredArtwork(faceCard.id, arts.first.id);
       }
+
+      // Apply a deck-import version hint ("4 Bolt (M11) 149") now that this
+      // face's printings are discovered — only if no version was chosen yet.
+      final hint = fresh?.importSetHint;
+      if (fresh != null &&
+          hint != null &&
+          fresh.selectedSetCode == null &&
+          !fresh.selectedSetIsVoid) {
+        final applied = await versionSelection.applyImportHint(
+          cardId: faceCard.id,
+          setHint: hint,
+          collectorNumberHint: fresh.importCnHint,
+        );
+        if (applied) {
+          yield _CardRunEvent(
+            message:
+                'Pre-selected version from import hint: ${hint.toUpperCase()}',
+          );
+          await database.cardsDao.clearImportHints(faceCard.id);
+        }
+      }
+
       if (arts.isNotEmpty) {
         await database.cardsDao.setUpToDate(faceCard.id, true);
       }

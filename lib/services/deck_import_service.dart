@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'deck_text_parser.dart';
 import 'http_client.dart';
 
 class DeckImportResult {
@@ -11,6 +12,14 @@ class DeckImportResult {
 class DeckImportService {
   final AppHttpClient _http;
   DeckImportService(this._http);
+
+  /// Rich deck-mode parsing of pasted text (quantities, Arena set hints,
+  /// sections, comments). See [DeckTextParser.parse].
+  DeckParseResult parseText(String input) => DeckTextParser.parse(input);
+
+  /// Deck-mode-off parsing: one card name per line.
+  List<ParsedDeckEntry> parseNameLines(String input) =>
+      DeckTextParser.parseNameLines(input);
 
   Future<DeckImportResult> importFromUrl(String rawUrl) async {
     final url = rawUrl.trim();

@@ -2,9 +2,11 @@ import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/normalize.dart';
 import '../../data/db/app_database.dart';
 import '../../providers/providers.dart';
 import '../../data/models/provider_id.dart';
+import '../../services/deck_text_parser.dart';
 
 class CreateProjectScreen extends ConsumerStatefulWidget {
   final int? projectId;
@@ -221,7 +223,7 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
                   const SizedBox(height: 10),
                   Text(
                     _deckMode
-                        ? '• Deck mode: each line must be "N Card name" — quantity is ignored, duplicates are deduplicated.'
+                        ? '• Deck mode: accepts "4 Card name", "1x Card name" and Arena lines like "4 Card name (M11) 149" — the (SET) becomes the pre-selected version. Quantities are deduplicated; comments (#, //) and section headers are understood; sideboard lines are skipped.'
                         : '• Deck mode off: each non-empty line is one card name.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(
@@ -248,7 +250,7 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
               controller: _cardsCtrl,
               decoration: InputDecoration(
                 labelText: _deckMode
-                    ? 'Deck list (e.g. "4 Lightning Bolt")'
+                    ? 'Deck list (e.g. "4 Lightning Bolt (M11) 149")'
                     : 'MTG card names (one per line)',
                 border: const OutlineInputBorder(),
                 alignLabelWithHint: true,
@@ -304,13 +306,21 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
     final projects = ref.read(projectRepoProvider);
     final cardRepo = ref.read(cardRepoProvider);
 
-    final name = _nameCtrl.text.trim();
+    final parsed = _parseInputCards(_cardsCtrl.text);
+    final entries = parsed.entries;
+    final cardNames = entries.map((e) => e.name).toList();
+
+    var name = _nameCtrl.text.trim();
+    // An MTGA "About / Name X" block can supply the project name.
+    if (name.isEmpty && (parsed.deckName?.isNotEmpty ?? false)) {
+      name = parsed.deckName!;
+      _nameCtrl.text = name;
+    }
     if (name.isEmpty) {
       setState(() => _error = 'Project name is required.');
       return;
     }
 
-    final parsedCards = _parseInputCards(_cardsCtrl.text);
     final router = GoRouter.of(context);
 
     setState(() {
@@ -323,7 +333,7 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
       late final int id;
 
       if (existingProjectId == null) {
-        if (parsedCards.isEmpty) {
+        if (entries.isEmpty) {
           setState(() {
             _error = _deckMode
                 ? 'Please paste at least one valid deck line like "4 Lightning Bolt".'
@@ -344,11 +354,11 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
         if (_importTokensOnly) {
           await ref
               .read(downloadPipelineProvider)
-              .importTokensFromCardNames(id, parsedCards);
+              .importTokensFromCardNames(id, cardNames);
         } else {
-          await cardRepo.insertCardsFromLines(id, parsedCards);
+          await cardRepo.insertCardsFromEntries(id, entries);
           final globalDao = ref.read(globalSettingsDaoProvider);
-          await globalDao.copyBasicsToProject(id, parsedCards);
+          await globalDao.copyBasicsToProject(id, cardNames);
           await globalDao.applyGlobalFramesToProject(id);
         }
       } else {
@@ -360,18 +370,18 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
               ..where((t) => t.id.equals(id)))
             .write(ProjectsCompanion(name: Value(name)));
 
-        if (parsedCards.isNotEmpty) {
+        if (entries.isNotEmpty) {
           if (_importTokensOnly) {
             await ref
                 .read(downloadPipelineProvider)
-                .importTokensFromCardNames(id, parsedCards);
+                .importTokensFromCardNames(id, cardNames);
           } else {
-            final newCardsOnly = await _removeExistingProjectCards(
+            final newEntriesOnly = await _removeExistingProjectCards(
               id,
-              parsedCards,
+              entries,
             );
-            if (newCardsOnly.isNotEmpty) {
-              await cardRepo.insertCardsFromLines(id, newCardsOnly);
+            if (newEntriesOnly.isNotEmpty) {
+              await cardRepo.insertCardsFromEntries(id, newEntriesOnly);
             }
           }
         }
@@ -418,56 +428,21 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
     }
   }
 
-  List<String> _parseNormalLines(String input) {
-    return input
-        .split('\n')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-  }
-
-  List<String> _parseDeckLines(String input) {
-    final result = <String>[];
-    final regex = RegExp(r'^\s*(\d+)\s+(.+?)\s*$');
-
-    for (final rawLine in input.split('\n')) {
-      final line = rawLine.trim();
-      if (line.isEmpty) continue;
-
-      final match = regex.firstMatch(line);
-      if (match == null) continue;
-
-      final qty = int.tryParse(match.group(1)!);
-      final cardName = match.group(2)!.trim();
-
-      if (qty == null || qty <= 0 || cardName.isEmpty) continue;
-
-      for (int i = 0; i < qty; i++) {
-        result.add(cardName);
-      }
+  /// Parses the paste box. In deck mode the rich parser handles quantities,
+  /// Arena "(SET) 123" hints, comments and section headers (sideboard and
+  /// maybeboard lines are skipped). Deduplication happens at insert time.
+  DeckParseResult _parseInputCards(String input) {
+    final service = ref.read(deckImportServiceProvider);
+    if (!_deckMode) {
+      return DeckParseResult(entries: service.parseNameLines(input));
     }
-
-    return result;
-  }
-
-  List<String> _parseInputCards(String input) {
-    final parsed = _deckMode
-        ? _parseDeckLines(input)
-        : _parseNormalLines(input);
-    return _dedupePreserveOrder(parsed);
-  }
-
-  List<String> _dedupePreserveOrder(List<String> items) {
-    final seen = <String>{};
-    final result = <String>[];
-
-    for (final item in items) {
-      if (seen.add(item)) {
-        result.add(item);
-      }
-    }
-
-    return result;
+    final result = service.parseText(input);
+    return DeckParseResult(
+      entries: result.entries
+          .where((e) => importedDeckSections.contains(e.section))
+          .toList(),
+      deckName: result.deckName,
+    );
   }
 
   Future<void> _loadInitialData() async {
@@ -489,9 +464,9 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
     _cardsCtrl.text = '';
   }
 
-  Future<List<String>> _removeExistingProjectCards(
+  Future<List<ParsedDeckEntry>> _removeExistingProjectCards(
     int projectId,
-    List<String> parsedCards,
+    List<ParsedDeckEntry> entries,
   ) async {
     final database = ref.read(dbProvider);
 
@@ -503,13 +478,8 @@ class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
         .map((c) => c.normalizedName)
         .toSet();
 
-    return parsedCards.where((name) {
-      final normalized = normalizeCardName(name);
-      return !existingNormalized.contains(normalized);
+    return entries.where((e) {
+      return !existingNormalized.contains(normalizeCardName(e.name));
     }).toList();
-  }
-
-  String normalizeCardName(String input) {
-    return input.trim().toLowerCase();
   }
 }

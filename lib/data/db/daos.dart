@@ -135,6 +135,17 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
   Future<void> insertCardsBulk(
     int projectId,
     List<(String name, String normalized)> items,
+  ) {
+    return insertCardsWithHints(projectId, [
+      for (final e in items)
+        (name: e.$1, normalized: e.$2, setHint: null, cnHint: null),
+    ]);
+  }
+
+  Future<void> insertCardsWithHints(
+    int projectId,
+    List<({String name, String normalized, String? setHint, String? cnHint})>
+        items,
   ) async {
     await batch((b) {
       b.insertAll(
@@ -143,8 +154,10 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
             .map(
               (e) => CardsCompanion.insert(
                 projectId: projectId,
-                name: e.$1,
-                normalizedName: e.$2,
+                name: e.name,
+                normalizedName: e.normalized,
+                importSetHint: Value(e.setHint),
+                importCnHint: Value(e.cnHint),
               ),
             )
             .toList(),
@@ -178,6 +191,18 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
     return (update(cards)..where((t) => t.id.equals(cardId)))
         .write(CardsCompanion(faceIndex: Value(faceIndex)));
   }
+
+  Future<void> setImportHints(int cardId, String? setHint, String? cnHint) {
+    return (update(cards)..where((t) => t.id.equals(cardId))).write(
+      CardsCompanion(
+        importSetHint: Value(setHint),
+        importCnHint: Value(cnHint),
+      ),
+    );
+  }
+
+  Future<void> clearImportHints(int cardId) =>
+      setImportHints(cardId, null, null);
 
   Stream<List<Card>> watchCards(int projectId, {required CardFilter filter}) {
     final q = select(cards)..where((t) => t.projectId.equals(projectId));

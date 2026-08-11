@@ -118,6 +118,7 @@ final downloadPipelineProvider = Provider<DownloadPipeline>((ref) {
     imageStore: ref.read(imageStoreProvider),
     artworkRepo: ref.read(artworkRepoProvider),
     setIconService: ref.read(setIconServiceProvider),
+    versionSelection: ref.read(versionSelectionServiceProvider),
   );
 });
 

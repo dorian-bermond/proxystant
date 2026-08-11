@@ -71,4 +71,49 @@ class VersionSelectionService {
     // intentionally omits it; only artwork selection should set this field).
     await db.printDataDao.setArtistForCard(cardId, artwork.artist);
   }
+
+  /// Applies a deck-import set hint (e.g. from an Arena line
+  /// "4 Lightning Bolt (M11) 149"): selects the discovered printing matching
+  /// [setHint], preferring the default language.
+  ///
+  /// Returns true if a matching printing was found and selected; false means
+  /// the hint set is not among the discovered printings and the caller should
+  /// silently fall back to normal behavior.
+  ///
+  /// The artist is not written here — only artwork selection owns it.
+  Future<bool> applyImportHint({
+    required int cardId,
+    required String setHint,
+    String? collectorNumberHint,
+  }) async {
+    final defaultLang = await settingsDao.getDefaultLanguage();
+    final printings = await db.printDataDao.getDiscoveredPrintingsForCard(
+      cardId,
+    );
+
+    final matches = printings
+        .where((p) => (p['set_code'] as String?) == setHint)
+        .toList();
+    if (matches.isEmpty) return false;
+
+    final target =
+        matches.firstWhereOrNull((p) => (p['lang'] as String?) == defaultLang)
+            ?? matches.first;
+    final lang = target['lang'] as String;
+
+    await db.cardsDao.setSelectedSet(
+      cardId: cardId,
+      setCode: setHint,
+      lang: lang,
+      isVoid: true,
+      collectorNumber:
+          collectorNumberHint ?? target['collector_number'] as String?,
+    );
+    await db.printDataDao.populateUsedFromPrinting(
+      cardId: cardId,
+      setCode: setHint,
+      lang: lang,
+    );
+    return true;
+  }
 }

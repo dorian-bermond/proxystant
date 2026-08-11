@@ -17,6 +17,7 @@ import '../services/magicville_parser.dart';
 import '../services/magicville_client.dart';
 import '../services/image_store.dart';
 import '../services/download_pipeline.dart';
+import '../services/project_duplication_service.dart';
 
 import '../core/thumb_path.dart';
 
@@ -167,6 +168,14 @@ final bulkCardActionsServiceProvider = Provider<BulkCardActionsService>((ref) {
   return BulkCardActionsService(
     database: ref.read(dbProvider),
     versionSelection: ref.read(versionSelectionServiceProvider),
+  );
+});
+
+final projectDuplicationServiceProvider =
+    Provider<ProjectDuplicationService>((ref) {
+  return ProjectDuplicationService(
+    database: ref.read(dbProvider),
+    storagePaths: ref.read(storagePathsProvider),
   );
 });
 

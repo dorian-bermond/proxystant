@@ -168,7 +168,12 @@ class ExportService {
       'rarity': used?.rarity ?? '',
     };
 
-    if (card.dfcSiblingId != null) entry['face_index'] = card.faceIndex ?? 0;
+    // Only emit a face index we actually know. Defaulting an unknown face to 0
+    // would label both halves of a DFC as the front, which is worse for a
+    // renderer than the key being absent.
+    if (card.dfcSiblingId != null && card.faceIndex != null) {
+      entry['face_index'] = card.faceIndex;
+    }
 
     if (frame != null) entry['frame'] = frame;
 

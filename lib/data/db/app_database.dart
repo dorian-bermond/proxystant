@@ -32,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 20;
+  int get schemaVersion => 21;
 
   Future<void> _createCustomTables() async {
     await customStatement('''
@@ -291,6 +291,27 @@ class AppDatabase extends _$AppDatabase {
         try {
           await customStatement(
             'ALTER TABLE cards ADD COLUMN import_cn_hint TEXT',
+          );
+        } catch (_) {}
+      }
+      if (from < 21) {
+        // Back-fill face_index for DFC pairs split before the column existed.
+        // The pipeline keeps the pre-split row as face 0 and inserts the other
+        // faces afterwards, so within a pair the lower id is the front face.
+        // Only NULLs are touched, and the next Fetch Data re-derives the index
+        // from Scryfall's own face order, which stays authoritative.
+        try {
+          await customStatement(
+            'UPDATE cards SET face_index = 0'
+            ' WHERE dfc_sibling_id IS NOT NULL AND face_index IS NULL'
+            ' AND id < dfc_sibling_id',
+          );
+        } catch (_) {}
+        try {
+          await customStatement(
+            'UPDATE cards SET face_index = 1'
+            ' WHERE dfc_sibling_id IS NOT NULL AND face_index IS NULL'
+            ' AND id > dfc_sibling_id',
           );
         } catch (_) {}
       }

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 // Runs in a background isolate — keeps the Android foreground service alive
@@ -40,7 +41,14 @@ class ForegroundDownloadService {
     );
   }
 
-  static Future<void> start({String text = 'Starting…'}) async {
+  /// Starts the keep-alive service. Returns false when it could not be
+  /// started — the download still runs, but Android will suspend it (and cut
+  /// its network) once the app leaves the foreground.
+  ///
+  /// Failures are reported rather than swallowed: a mismatch between the
+  /// service class named in AndroidManifest.xml and the one the plugin starts
+  /// silently disabled background downloads for a long time.
+  static Future<bool> start({String text = 'Starting…'}) async {
     try {
       final permission = await FlutterForegroundTask.checkNotificationPermission();
       if (permission != NotificationPermission.granted) {
@@ -52,7 +60,11 @@ class ForegroundDownloadService {
         notificationText: text,
         callback: _noOpCallback,
       );
-    } catch (_) {}
+      return true;
+    } catch (e, st) {
+      debugPrint('ForegroundDownloadService.start failed: $e\n$st');
+      return false;
+    }
   }
 
   static Future<void> update(String text) async {

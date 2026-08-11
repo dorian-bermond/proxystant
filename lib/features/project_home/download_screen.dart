@@ -160,6 +160,39 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Download-state summary for the project.
+                      StreamBuilder<int>(
+                        stream: ref
+                            .read(dbProvider)
+                            .cardsDao
+                            .watchCardsWithDownloadedArtworkCount(
+                              widget.projectId,
+                            ),
+                        builder: (context, downloadedSnap) {
+                          final downloaded = downloadedSnap.data;
+                          return StreamBuilder<int>(
+                            stream: ref
+                                .read(cardRepoProvider)
+                                .watchTotal(widget.projectId),
+                            builder: (context, totalSnap) {
+                              final total = totalSnap.data;
+                              if (downloaded == null || total == null) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Text(
+                                  '$downloaded of $total cards have '
+                                  'downloaded artwork',
+                                  style:
+                                      Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+
                       Text(
                         'Download scope',
                         style: Theme.of(context).textTheme.titleMedium,

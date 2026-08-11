@@ -555,6 +555,18 @@ class CardsDao extends DatabaseAccessor<AppDatabase> with _$CardsDaoMixin {
     }
     return affected;
   }
+
+  /// Cards in a project whose artwork is downloaded (≥1 non-discarded
+  /// artwork row).
+  Stream<int> watchCardsWithDownloadedArtworkCount(int projectId) {
+    return customSelect(
+      'SELECT COUNT(DISTINCT c.id) AS cnt FROM cards c'
+      ' JOIN artworks a ON a.card_id = c.id AND a.is_discarded = 0'
+      ' WHERE c.project_id = ?',
+      variables: [Variable(projectId)],
+      readsFrom: {cards, db.artworks},
+    ).watchSingle().map((row) => row.data['cnt'] as int? ?? 0);
+  }
 }
 
 @DriftAccessor(tables: [CardDiscoveredPrintings])

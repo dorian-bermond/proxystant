@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/artwork_file.dart';
 import '../../core/grid_layout.dart';
 import '../../core/progress_dialog.dart';
 import '../../providers/providers.dart';
@@ -31,6 +32,12 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
   /// exactly the same filtered subset as the grid.
   Map<int, String?> _latestLayoutMap = {};
 
+  /// Per-tile (artwork, on-disk) future cache, invalidated when the cards
+  /// stream emits, so scrolling/typing doesn't re-stat files.
+  final Map<String, Future<({db.Artwork? art, bool exists})>> _tileArtCache =
+      {};
+  List<db.Card>? _lastCardsData;
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -52,6 +59,18 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
       if (lf != null && layoutMap[c.id] != lf) return false;
       return true;
     }).toList();
+  }
+
+  Future<({db.Artwork? art, bool exists})> _tileArt(db.Card c) {
+    final key = '${c.id}:${c.preferredArtworkId}';
+    return _tileArtCache.putIfAbsent(key, () async {
+      final art = await ref
+          .read(dbProvider)
+          .artworksDao
+          .getPreferredOrFirstArtworkForCard(c.id, c.preferredArtworkId);
+      if (art == null) return (art: null, exists: false);
+      return (art: art, exists: await artworkFileExists(art));
+    });
   }
 
   void _snack(String message) {
@@ -356,6 +375,12 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                   stream: cardRepo.watchCards(widget.projectId, _filter),
                   builder: (context, snapshot) {
                     final allCards = snapshot.data ?? const [];
+                    // A fresh stream emission means card rows changed —
+                    // re-check artwork files on disk.
+                    if (!identical(allCards, _lastCardsData)) {
+                      _lastCardsData = allCards;
+                      _tileArtCache.clear();
+                    }
                     final cards = _applyClientFilters(allCards, layoutMap);
                     if (cards.isEmpty) {
                       return const Center(child: Text('No cards found.'));
@@ -397,14 +422,11 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                                 child: Column(
                                   children: [
                                     Expanded(
-                                      child: FutureBuilder<db.Artwork?>(
-                                        future: database.artworksDao
-                                            .getPreferredOrFirstArtworkForCard(
-                                              c.id,
-                                              c.preferredArtworkId,
-                                            ),
+                                      child: FutureBuilder<
+                                          ({db.Artwork? art, bool exists})>(
+                                        future: _tileArt(c),
                                         builder: (context, artSnap) {
-                                          final art = artSnap.data;
+                                          final art = artSnap.data?.art;
                                           if (art == null) {
                                             return Container(
                                               color: Theme.of(context)
@@ -489,6 +511,41 @@ class _CardsGridScreenState extends ConsumerState<CardsGridScreen> {
                                     color: Colors.orange,
                                   ),
                                 ),
+
+                              // Download state badge (bottom-right):
+                              // grey = nothing downloaded, red = the selected
+                              // artwork's file is missing on disk.
+                              FutureBuilder<({db.Artwork? art, bool exists})>(
+                                future: _tileArt(c),
+                                builder: (context, artSnap) {
+                                  final data = artSnap.data;
+                                  if (data == null ||
+                                      (data.art != null && data.exists)) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  final missing = data.art != null;
+                                  return Positioned(
+                                    bottom: 10,
+                                    right: 10,
+                                    child: Tooltip(
+                                      message: missing
+                                          ? 'Artwork file missing on disk'
+                                          : 'No artwork downloaded yet',
+                                      child: Icon(
+                                        missing
+                                            ? Icons.image_not_supported
+                                            : Icons.file_download_off,
+                                        size: 16,
+                                        color: missing
+                                            ? Theme.of(context)
+                                                .colorScheme
+                                                .error
+                                            : Colors.grey,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
 
                               // DFC badge: this card is one face of a
                               // double-faced/split card.

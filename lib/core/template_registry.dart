@@ -27,6 +27,7 @@ const Map<String, TemplateInfo> templateRegistry = {
       'saga':          'assets/templates/Proxyshop/Normal/saga.jpg',
       'class':         'assets/templates/Proxyshop/Normal/class.jpg',
       'battle':        'assets/templates/Proxyshop/Normal/battle.jpg',
+      'split':         'assets/templates/Proxyshop/Normal/split.jpg',
       'prototype':     'assets/templates/Proxyshop/Normal/prototype.jpg',
       'planeswalker':  'assets/templates/Proxyshop/Normal/planeswalker.jpg',
       'pw_tf_front':   'assets/templates/Proxyshop/Normal/pw_tf_front.jpg',
@@ -144,12 +145,6 @@ const Map<String, TemplateInfo> templateRegistry = {
     author: 'Proxyshop',
     layouts: {
       'normal': 'assets/templates/Proxyshop/Chilli Token/normal.jpg',
-    },
-  ),
-  'Split': TemplateInfo(
-    author: 'Proxyshop',
-    layouts: {
-      'split': 'assets/templates/Proxyshop/Normal/split.jpg',
     },
   ),
 

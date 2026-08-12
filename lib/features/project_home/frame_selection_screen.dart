@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants.dart';
 import '../../core/grid_layout.dart';
 import '../../core/template_registry.dart';
 import '../../providers/providers.dart';
@@ -347,12 +348,107 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
         : info.layouts.keys.first;
   }
 
+  /// Tile for [kNoFrame]. Stands apart from the registry tiles: it has no
+  /// preview asset and no layouts, so it draws an icon instead of an image, has
+  /// no fullscreen view, and stays offered for every layout — a raw print
+  /// applies to anything.
+  Widget _noFrameTile(BuildContext context, double tileWidth) {
+    final cs = Theme.of(context).colorScheme;
+    final isSelected = _selectedFrame == kNoFrame;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedFrame = kNoFrame),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        width: tileWidth,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? cs.primary : cs.outlineVariant,
+            width: isSelected ? 2.5 : 1,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(isSelected ? 5.5 : 7),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AspectRatio(
+                aspectRatio: 5 / 7,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: cs.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.crop_original,
+                        color: cs.onSurfaceVariant,
+                        size: tileWidth * 0.35,
+                      ),
+                    ),
+                    if (isSelected)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.check,
+                            size: 11,
+                            color: cs.onPrimary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                color: isSelected
+                    ? cs.primaryContainer
+                    : cs.surfaceContainerHighest,
+                padding: const EdgeInsets.fromLTRB(6, 5, 6, 5),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kNoFrame,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: isSelected ? cs.onPrimaryContainer : null,
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'raw print',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontSize: 9,
+                          ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _frameWrap(BuildContext context, double tileWidth) {
     final cs = Theme.of(context).colorScheme;
     return Wrap(
       spacing: _frameGallerySpacing,
       runSpacing: _frameGallerySpacing,
-      children: templateRegistry.entries
+      children: [
+        _noFrameTile(context, tileWidth),
+        ...templateRegistry.entries
           .where((e) => frameCompatible(e.value, _selectedLayouts))
           .map((e) {
         final previewKey = _previewKeyFor(e.value);
@@ -465,7 +561,8 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
             ),
           ),
         );
-      }).toList(),
+      }),
+      ],
     );
   }
 

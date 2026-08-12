@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:drift/drift.dart' hide Column;
 
+import '../../core/constants.dart';
 import '../../core/grid_layout.dart';
 import '../../core/template_registry.dart';
 import '../../core/thumb_path.dart';
@@ -1261,6 +1262,119 @@ class _FrameTab extends ConsumerWidget {
     return info.layouts[k]!;
   }
 
+  /// Tile for [kNoFrame] — no preview asset, no layouts, offered for every
+  /// card. Distinct from "Reset to default" above, which clears the frame so
+  /// the project default applies again; this pins the card to a raw print.
+  Widget _noFrameTile(
+    BuildContext context,
+    db.AppDatabase database,
+    String? currentFrame,
+    String? projectDefault,
+  ) {
+    final cs = Theme.of(context).colorScheme;
+    final isSelected = currentFrame == kNoFrame;
+    final isDefault = projectDefault == kNoFrame;
+    return GestureDetector(
+      onTap: () => database.cardsDao.setFrame(card.id, kNoFrame),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        width: 88,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? cs.primary
+                : isDefault
+                    ? cs.primary.withValues(alpha: 0.45)
+                    : cs.outlineVariant,
+            width: isSelected ? 2.5 : isDefault ? 1.5 : 1,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(isSelected ? 5.5 : 7),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AspectRatio(
+                aspectRatio: 5 / 7,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      color: cs.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.crop_original,
+                        color: cs.onSurfaceVariant,
+                        size: 30,
+                      ),
+                    ),
+                    if (isSelected)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.check, size: 11, color: cs.onPrimary),
+                        ),
+                      )
+                    else if (isDefault)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: cs.primary.withValues(alpha: 0.85),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(Icons.star, size: 11, color: cs.onPrimary),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                color: isSelected
+                    ? cs.primaryContainer
+                    : isDefault
+                        ? cs.primaryContainer.withValues(alpha: 0.4)
+                        : cs.surfaceContainerHighest,
+                padding: const EdgeInsets.fromLTRB(6, 5, 6, 5),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      kNoFrame,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: isSelected ? cs.onPrimaryContainer : null,
+                            fontWeight: isSelected ? FontWeight.w600 : null,
+                          ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      'raw print',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: cs.onSurfaceVariant,
+                            fontSize: 9,
+                          ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final database = ref.read(dbProvider);
@@ -1317,7 +1431,9 @@ class _FrameTab extends ConsumerWidget {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: templateRegistry.entries
+                  children: [
+                    _noFrameTile(context, database, currentFrame, projectDefault),
+                    ...templateRegistry.entries
                       .where((e) => frameCompatible(
                           e.value, {card.layout ?? 'normal'}))
                       .map((e) {
@@ -1459,7 +1575,8 @@ class _FrameTab extends ConsumerWidget {
                         ),
                       ),
                     );
-                  }).toList(),
+                  }),
+                  ],
                 ),
               ],
             );

@@ -516,6 +516,16 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
       await _loadFrameDefaults();
       if (!mounted) return;
 
+      // Start the next assignment from a clean slate: leaving the chips and the
+      // frame selected invites re-applying the same thing to a set the user
+      // thought they had cleared. Only on success — a failed apply keeps the
+      // selection so it can be retried.
+      setState(() {
+        _selectedFrame = null;
+        _selectedLayouts.clear();
+        _selectedTypes.clear();
+      });
+
       final parts = [
         if (selectedLayouts.isNotEmpty)
           selectedLayouts.length == 1

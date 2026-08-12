@@ -334,6 +334,19 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
 
   static const double _frameGallerySpacing = 8;
 
+  /// The layout to preview for [info]: the one being worked on, so selecting
+  /// the split chip shows each frame's split preview rather than its 'normal'
+  /// one — the point of comparing frames for a layout. Falls back to 'normal',
+  /// then to whatever the template has.
+  String _previewKeyFor(TemplateInfo info) {
+    for (final key in _selectedLayouts) {
+      if (info.layouts.containsKey(key)) return key;
+    }
+    return info.layouts.containsKey('normal')
+        ? 'normal'
+        : info.layouts.keys.first;
+  }
+
   Widget _frameWrap(BuildContext context, double tileWidth) {
     final cs = Theme.of(context).colorScheme;
     return Wrap(
@@ -342,11 +355,13 @@ class _FrameSelectionScreenState extends ConsumerState<FrameSelectionScreen> {
       children: templateRegistry.entries
           .where((e) => frameCompatible(e.value, _selectedLayouts))
           .map((e) {
-        final previewKey = e.value.layouts.containsKey('normal')
-            ? 'normal'
-            : e.value.layouts.keys.first;
+        final previewKey = _previewKeyFor(e.value);
         final previewPath = e.value.layouts[previewKey]!;
-        final name = templateFolderName(previewPath);
+        // Keep the tile's identity on a fixed layout: the frame stored on a
+        // card must not depend on which preview happens to be showing.
+        final name = templateFolderName(
+          e.value.layouts['normal'] ?? e.value.layouts.values.first,
+        );
         final isSelected = _selectedFrame == name;
         return GestureDetector(
           onTap: () => setState(() => _selectedFrame = name),

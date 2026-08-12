@@ -71,14 +71,6 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
     });
   }
 
-  String _sanitizeFileName(String input) {
-    final cleaned = input
-        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return cleaned.isEmpty ? 'project_${widget.projectId}' : cleaned;
-  }
-
   /// Returns the path the ZIP was written to, or null if the user cancelled.
   Future<String?> _saveOnDesktop(List<int> zipBytes, String fileName) async {
     const typeGroup = XTypeGroup(label: 'ZIP archive', extensions: ['zip']);
@@ -149,7 +141,11 @@ class _ExportScreenState extends ConsumerState<ExportScreen> {
         savedPath = outcome.outputPath;
       } else {
         final zipBytes = await exporter.encodeZip(manifest);
-        final fileName = '${_sanitizeFileName(_projectName)}.zip';
+        final fileName = exportZipFileName(
+          projectName: _projectName,
+          projectId: widget.projectId,
+          when: DateTime.now(),
+        );
         // flutter_file_dialog is Android/iOS-only, so desktop goes through
         // file_selector's native save dialog instead.
         savedPath = _isDesktop

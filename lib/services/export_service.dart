@@ -10,6 +10,37 @@ import '../data/db/app_database.dart' as db;
 
 enum ExportMode { folder, zip }
 
+/// Strips the characters a file name cannot contain (Windows is the strictest
+/// of the platforms this runs on) and collapses whitespace.
+String sanitizeFileNamePart(String input) {
+  return input
+      .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+/// Name for a ZIP export: the project name suffixed with a timestamp, e.g.
+/// `Modern Burn_2026-08-11_21-05-33.zip`.
+///
+/// The timestamp is written with dashes rather than the colons of an ISO
+/// string, which are illegal in file names on Windows, and is ordered
+/// most-significant-first so exports of the same project sort chronologically.
+/// [projectId] only names the file when the project's own name is empty or
+/// consists entirely of characters that had to be stripped.
+String exportZipFileName({
+  required String projectName,
+  required int projectId,
+  required DateTime when,
+}) {
+  final cleaned = sanitizeFileNamePart(projectName);
+  final base = cleaned.isEmpty ? 'project_$projectId' : cleaned;
+  String two(int value) => value.toString().padLeft(2, '0');
+  final stamp =
+      '${when.year}-${two(when.month)}-${two(when.day)}'
+      '_${two(when.hour)}-${two(when.minute)}-${two(when.second)}';
+  return '${base}_$stamp.zip';
+}
+
 /// One artwork file in an export: where it goes and where its bytes live.
 class ExportEntry {
   /// Path inside the export, e.g. 'frame/layout/Name (Artist) [SET] {1}.png'.
@@ -73,12 +104,7 @@ class ExportService {
   final db.AppDatabase database;
   ExportService(this.database);
 
-  String _sanitize(String input) {
-    return input
-        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
+  String _sanitize(String input) => sanitizeFileNamePart(input);
 
   String _exportFolder(String? layout, String? frame) {
     final f = frame?.trim();

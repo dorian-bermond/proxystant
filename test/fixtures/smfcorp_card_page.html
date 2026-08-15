@@ -1,0 +1,48 @@
+<!--
+  Structural fixture for SmfCorpParser, mirroring an SMF Corp card page.
+
+  The markup shape is copied from a real page (unquoted-free Bootstrap markup,
+  the printed/oracle/VO id triplet, mana symbols as <img> whose file name holds
+  the brace token, flavour text broken by <br>), but every text node is
+  placeholder prose so no card text is vendored into this repo.
+
+  Real page verified: element ids title / printedType / printedText / printedTA
+  / oracleType / oracleText / VOtitle / VOType / VOText / VOTA, and symbol
+  images of the form ".../%7BoT%7D_5tsY.png".
+-->
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"></head><body class="bg-light">
+
+<meta property="og:title" content="Nom Francais">
+<meta property="og:url" content="https://www.smfcorp.net/mtg-carte-10422-nom-francais.html">
+
+<div class="row">
+  <div class="col-md-6 my-2">
+    <h5 id="title">Nom Fran&ccedil;ais</h5>
+
+    <a href="#" id="linkPrinted">Version imprim&eacute;e</a>
+    <a href="#" id="linkOracle">Oracle</a>
+    <a href="#" id="linkVO">VO</a>
+
+    <span id="printedType">Terrain l&eacute;gendaire</span>
+    <span id="printedText"><img src="Nom%20Francais_files/%7BoT%7D_5tsY.png" valign="middle"> : Ajoutez <img src="Nom%20Francais_files/%7BG%7D_5tsY.png" valign="middle"> pour chaque cr&eacute;ature.</span>
+    <span id="printedTA">Premi&egrave;re ligne d&#039;ambiance.<br />Seconde ligne &mdash; Auteur</span>
+
+    <span id="oracleType"><a href="#">Terrain</a> l&eacute;gendaire</span>
+    <span id="oracleText"><img src="Nom%20Francais_files/%7BoT%7D_5tsY.png" valign="middle"> : Ajoutez <img src="Nom%20Francais_files/%7BG%7D_5tsY.png" valign="middle"> par cr&eacute;ature.</span>
+
+    <h5 id="VOtitle">English Name</h5>
+    <span id="VOType">Legendary Land</span>
+    <span id="VOText"><img src="Nom%20Francais_files/%7BoT%7D_5tsY.png" valign="middle">: Add <img src="Nom%20Francais_files/%7BG%7D_5tsY.png" valign="middle"> for each creature.</span>
+    <span id="VOTA">First flavour line.<br />Second line &mdash; Author</span>
+  </div>
+</div>
+
+<div id="accordionCardVersion">
+  <a href="/mtg-carte-10422-nom-francais.html">Edition A</a>
+  <a href="/mtg-carte-133615-nom-francais-legacy-championship.html">Edition B</a>
+  <a href="https://www.smfcorp.net/mtg-carte-133633-nom-francais-legacy-championship.html">Edition C</a>
+  <a href="/mtg-carte-10422-nom-francais.html">Edition A again (duplicate id)</a>
+</div>
+
+</body></html>

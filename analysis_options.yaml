@@ -15,6 +15,12 @@ analyzer:
     # update check), so copies of it land under build/ and the analyzer would
     # otherwise report their relative asset paths as broken.
     - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 linter:
   # The lint rules applied to this project can be customized in the

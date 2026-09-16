@@ -18,6 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # flutter_inappwebview's Windows implementation resolves its WebView2
+      # SDK through NuGet at build time and needs the CLI on PATH.
+      - uses: NuGet/setup-nuget@v2
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}

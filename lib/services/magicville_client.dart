@@ -4,7 +4,18 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'cloudflare_session.dart';
 import 'magicville_parser.dart';
+
+/// Thrown when Cloudflare refused the request instead of MagicVille answering.
+class MagicVilleChallengedException implements Exception {
+  final Uri uri;
+  final int statusCode;
+  const MagicVilleChallengedException(this.uri, this.statusCode);
+  @override
+  String toString() =>
+      'MagicVille refused the request (HTTP $statusCode, Cloudflare challenge): $uri';
+}
 
 /// Outcome of a MagicVille name search, carrying enough detail for the run log
 /// to distinguish "the site refused us" from "the site answered, no match".
@@ -17,10 +28,16 @@ class MagicVilleSearchResult {
   /// Set when the request threw instead of returning a response.
   final String? error;
 
+  /// Whether the answer came from the WebView because Cloudflare refused the
+  /// plain request. Worth seeing in the log: it is much slower, and it means
+  /// the direct path is still blocked.
+  final bool viaWebView;
+
   const MagicVilleSearchResult({
     required this.statusCode,
     this.refs = const [],
     this.error,
+    this.viaWebView = false,
   });
 
   /// Cloudflare answers a challenged client with 403 (or 503 for the interstitial).
@@ -33,7 +50,8 @@ class MagicVilleSearchResult {
           '(Cloudflare challenge), not a missing card';
     }
     if (statusCode != 200) return 'HTTP $statusCode';
-    return 'HTTP 200, ${refs.length} ref(s)'
+    return 'HTTP 200${viaWebView ? " (via WebView)" : ""}, '
+        '${refs.length} ref(s)'
         '${refs.isEmpty ? "" : ": ${refs.take(8).join(", ")}"}';
   }
 }
@@ -42,7 +60,11 @@ class MagicVilleClient {
   final MagicVilleParser parser;
   final HttpClient _http;
 
-  MagicVilleClient(this.parser, {HttpClient? http})
+  /// Clears the Cloudflare challenge when a plain request is refused. Null
+  /// disables that recovery (tests, or a platform with no WebView).
+  final CloudflareSession? cloudflare;
+
+  MagicVilleClient(this.parser, {HttpClient? http, this.cloudflare})
     : _http = http ?? HttpClient() {
     // Prevent indefinite hangs
     _http.connectionTimeout = const Duration(seconds: 12);
@@ -61,6 +83,34 @@ class MagicVilleClient {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 
+  /// Minimum gap between requests. MagicVille is one person's site and a
+  /// burst of parallel requests is both rude and the fastest way back onto
+  /// Cloudflare's bad side, so every request queues behind this.
+  static const _minRequestGap = Duration(milliseconds: 350);
+
+  Future<void> _gate = Future.value();
+  DateTime _lastRequestAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Artwork pages already fetched this session, so re-probing a ref the run
+  /// has seen costs nothing. Only successes and confirmed-missing refs are
+  /// remembered; a timeout or a challenge stays retryable.
+  final Map<String, (List<MagicVilleArtworkInfo>, List<String>)> _pageCache =
+      {};
+  final Set<String> _missingRefs = {};
+
+  /// Serializes requests and spaces them by [_minRequestGap].
+  Future<T> _throttled<T>(Future<T> Function() request) {
+    final result = _gate.then((_) async {
+      final wait = _minRequestGap - DateTime.now().difference(_lastRequestAt);
+      if (wait > Duration.zero) await Future<void>.delayed(wait);
+      _lastRequestAt = DateTime.now();
+      return request();
+    });
+    // Keep the chain alive when one request fails.
+    _gate = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
   /// Dart's HttpClient does not persist cookies between requests, so every
   /// call used to arrive session-less: the advanced search's "pre-flight GET to
   /// establish a session cookie" could never actually carry one over, and a PHP
@@ -70,7 +120,12 @@ class MagicVilleClient {
 
   void _prepare(HttpClientRequest req, {String? referer}) {
     req.headers
-      ..set(HttpHeaders.userAgentHeader, _userAgent)
+      ..set(
+        HttpHeaders.userAgentHeader,
+        // cf_clearance is bound to the UA it was issued to, so once the
+        // WebView has cleared the challenge its UA is the only one that works.
+        cloudflare?.userAgent ?? _userAgent,
+      )
       ..set(
         HttpHeaders.acceptHeader,
         'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -79,10 +134,11 @@ class MagicVilleClient {
     if (referer != null && referer.isNotEmpty) {
       req.headers.set(HttpHeaders.refererHeader, referer);
     }
-    if (_cookies.isNotEmpty) {
+    final jar = {..._cookies, ...?cloudflare?.cookies};
+    if (jar.isNotEmpty) {
       req.headers.set(
         HttpHeaders.cookieHeader,
-        _cookies.entries.map((e) => '${e.key}=${e.value}').join('; '),
+        jar.entries.map((e) => '${e.key}=${e.value}').join('; '),
       );
     }
   }
@@ -97,7 +153,7 @@ class MagicVilleClient {
     }
   }
 
-  Future<String> _getHtml(Uri uri) async {
+  Future<String> _rawGetHtml(Uri uri) async {
     final req = await _http
         .getUrl(uri)
         .timeout(
@@ -131,6 +187,9 @@ class MagicVilleClient {
       },
     );
 
+    if (res.statusCode == 403 || res.statusCode == 503) {
+      throw MagicVilleChallengedException(uri, res.statusCode);
+    }
     if (res.statusCode != 200) {
       throw HttpException('MagicVille HTTP ${res.statusCode}', uri: uri);
     }
@@ -152,12 +211,60 @@ class MagicVilleClient {
     }
   }
 
+  /// Fetches [uri], recovering from a Cloudflare refusal.
+  ///
+  /// First a plain throttled request. If Cloudflare refuses it, the hidden
+  /// WebView re-solves the challenge and the request is retried once with the
+  /// fresh cookie; if it is refused even then — which is what a
+  /// fingerprint-bound cf_clearance looks like — the page is rendered in the
+  /// WebView instead, where the request is a real browser navigation.
+  Future<String> _getHtml(Uri uri) async {
+    try {
+      return await _throttled(() => _rawGetHtml(uri));
+    } on MagicVilleChallengedException {
+      final session = cloudflare;
+      if (session == null || !session.isSupported) rethrow;
+
+      debugPrint('MV challenged on $uri — falling back to the WebView');
+      // Only worth replaying over plain HTTP if a clearance cookie actually
+      // exists; against the live site none is ever issued, so warmUp reports
+      // false once and this is skipped from then on.
+      if (await session.warmUp()) {
+        try {
+          return await _throttled(() => _rawGetHtml(uri));
+        } on MagicVilleChallengedException {
+          debugPrint('MV still challenged with cf_clearance held — '
+              'the client itself is being scored; rendering instead');
+        }
+      }
+
+      final rendered = await session.renderHtml(uri.toString());
+      if (rendered != null && rendered.isNotEmpty) return rendered;
+      rethrow;
+    }
+  }
+
   Future<(List<MagicVilleArtworkInfo>, List<String>)> fetchArtworkInfo({
     required String ref,
   }) async {
+    final cached = _pageCache[ref];
+    if (cached != null) return cached;
+    if (_missingRefs.contains(ref)) {
+      throw HttpException('MagicVille HTTP 404 (cached)', uri: Uri.parse('${_base}carte_art?ref=$ref'));
+    }
+
     final uri = Uri.parse('${_base}carte_art?ref=$ref');
-    final htmlText = await _getHtml(uri);
-    return parser.parseArtworkPage(htmlText);
+    try {
+      final htmlText = await _getHtml(uri);
+      final parsed = parser.parseArtworkPage(htmlText);
+      _pageCache[ref] = parsed;
+      return parsed;
+    } on HttpException catch (e) {
+      // A ref that simply is not on MagicVille will not become one; anything
+      // else (timeout, challenge) stays retryable.
+      if (e.message.contains('404')) _missingRefs.add(ref);
+      rethrow;
+    }
   }
 
   /// Non-throwing probe: returns null on network/HTTP error.
@@ -199,6 +306,53 @@ class MagicVilleClient {
     String name, {
     String? speType,
   }) async {
+    final result = await _postSearch(name, speType: speType);
+    final session = cloudflare;
+    if (!result.blocked || session == null || !session.isSupported) {
+      return result;
+    }
+
+    // Re-issue the same form as a same-origin fetch() from inside the WebView.
+    debugPrint('MV search challenged — re-posting it from the WebView');
+    final html = await session.postForm(
+      '${_base}resultats',
+      _searchFields(name, speType: speType),
+    );
+    if (html == null) return result;
+    return MagicVilleSearchResult(
+      statusCode: 200,
+      refs: _extractRefs(html),
+      viaWebView: true,
+    );
+  }
+
+  /// The advanced-search form fields, shared by the plain POST and the
+  /// WebView re-post so the two cannot drift apart.
+  Map<String, String> _searchFields(String name, {String? speType}) => {
+    'manachecksum': '',
+    if (speType != null) 'spe_options': 'selected',
+    'manaonly': '1',
+    'color_search': '1',
+    'type_search': '1',
+    'spe_type': ?speType,
+    'graph_aff': '1',
+    'fra': '1',
+    'eng': '1',
+    'recherche_titre': name.toLowerCase(),
+    'recherche_type': '',
+    'recherche_texte': '',
+    'costx': '1',
+    'forx': '1',
+    'endx': '1',
+    'x': '0',
+    'y': '0',
+    'dci': '',
+  };
+
+  Future<MagicVilleSearchResult> _postSearch(
+    String name, {
+    String? speType,
+  }) async {
     final formUri = Uri.parse('${_base}rech_avancee');
     final postUri = Uri.parse('${_base}resultats');
 
@@ -236,9 +390,7 @@ class MagicVilleClient {
         .join('&');
     final bodyBytes = utf8.encode(body);
 
-    final request = await _http
-        .postUrl(postUri)
-        .timeout(
+    final request = await _throttled(() => _http.postUrl(postUri)).timeout(
           _requestTimeout,
           onTimeout: () => throw TimeoutException(
             'MagicVille search timeout',
@@ -345,7 +497,9 @@ class MagicVilleClient {
     ).replace(queryParameters: {'n': name.toLowerCase()});
 
     try {
-      final request = await _http.postUrl(uri).timeout(_requestTimeout);
+      final request = await _throttled(
+        () => _http.postUrl(uri),
+      ).timeout(_requestTimeout);
       _prepare(request, referer: _base);
       request.headers.set(HttpHeaders.contentLengthHeader, '0');
 
@@ -378,23 +532,42 @@ class MagicVilleClient {
     }
   }
 
+  /// Downloads an image, re-solving the challenge and retrying once if
+  /// Cloudflare refuses it.
   Future<(List<int> bytes, String contentType)> downloadImage(
+    String imageUrl, {
+    String? referer,
+  }) async {
+    try {
+      return await _downloadImage(imageUrl, referer: referer);
+    } on MagicVilleChallengedException {
+      final session = cloudflare;
+      if (session == null || !session.isSupported) rethrow;
+
+      // Not HTML, so it cannot be read out of a rendered page — fetch() it
+      // from the WebView's same-origin context instead.
+      debugPrint('MV image challenged on $imageUrl — fetching in the WebView');
+      final fetched = await session.fetchBytes(imageUrl);
+      if (fetched == null) rethrow;
+      return (fetched.bytes, fetched.mime);
+    }
+  }
+
+  Future<(List<int> bytes, String contentType)> _downloadImage(
     String imageUrl, {
     String? referer,
   }) async {
     final uri = Uri.parse(imageUrl);
 
-    final req = await _http
-        .getUrl(uri)
-        .timeout(
+    final req = await _throttled(() => _http.getUrl(uri)).timeout(
+      _requestTimeout,
+      onTimeout: () {
+        throw TimeoutException(
+          'MagicVille image getUrl timeout',
           _requestTimeout,
-          onTimeout: () {
-            throw TimeoutException(
-              'MagicVille image getUrl timeout',
-              _requestTimeout,
-            );
-          },
         );
+      },
+    );
 
     _prepare(req, referer: referer ?? _base);
 
@@ -408,6 +581,11 @@ class MagicVilleClient {
       },
     );
 
+    if (res.statusCode == 403 || res.statusCode == 503) {
+      // The image endpoint is a PHP script on the same host, so it sits behind
+      // the same challenge as the card pages.
+      throw MagicVilleChallengedException(uri, res.statusCode);
+    }
     if (res.statusCode != 200) {
       throw HttpException(
         'Failed to download image: HTTP ${res.statusCode}',

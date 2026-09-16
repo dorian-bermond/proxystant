@@ -14,6 +14,7 @@ import '../data/repositories/artwork_repository.dart';
 
 import '../services/http_client.dart';
 import '../services/scryfall_client.dart';
+import '../services/cloudflare_session.dart';
 import '../services/magicville_parser.dart';
 import '../services/magicville_client.dart';
 import '../services/image_store.dart';
@@ -172,8 +173,20 @@ final scryfallClientProvider = Provider<ScryfallClient>(
 final magicVilleParserProvider = Provider<MagicVilleParser>(
   (ref) => MagicVilleParser(),
 );
+/// One shared challenge-clearing session: the cf_clearance cookie it wins is
+/// reused by every MagicVille request, so the hidden WebView runs at most once
+/// per app session rather than once per card.
+final cloudflareSessionProvider = Provider<CloudflareSession>((ref) {
+  final session = CloudflareSession();
+  ref.onDispose(session.dispose);
+  return session;
+});
+
 final magicVilleClientProvider = Provider<MagicVilleClient>((ref) {
-  return MagicVilleClient(ref.read(magicVilleParserProvider));
+  return MagicVilleClient(
+    ref.read(magicVilleParserProvider),
+    cloudflare: ref.read(cloudflareSessionProvider),
+  );
 });
 
 final imageStoreProvider = Provider<ImageStore>(

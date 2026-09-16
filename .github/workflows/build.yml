@@ -16,11 +16,11 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # flutter_inappwebview's Windows implementation resolves its WebView2
       # SDK through NuGet at build time and needs the CLI on PATH.
-      - uses: NuGet/setup-nuget@v2
+      - uses: NuGet/setup-nuget@v4.0
 
       - uses: subosito/flutter-action@v2
         with:
@@ -47,7 +47,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
@@ -73,7 +73,7 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-java@v4
         with:

@@ -57,6 +57,19 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# flutter_inappwebview_windows builds against C++/WinRT at C++17, and at that
+# standard winrt/base.h falls back to <experimental/coroutine>. MSVC 14.51
+# (Visual Studio 18, what windows-latest ships) turned that header into a hard
+# static_assert — STL1011 — so the plugin stops compiling there while older
+# toolchains only warn. The error message names this macro as the escape
+# hatch. Scoped to the one target that needs it rather than the whole build.
+#
+# Remove once the plugin moves to C++20 and the std <coroutine> header.
+if(TARGET flutter_inappwebview_windows_plugin)
+  target_compile_definitions(flutter_inappwebview_windows_plugin
+    PRIVATE _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

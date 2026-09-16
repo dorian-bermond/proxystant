@@ -99,10 +99,32 @@ class MagicVilleClient {
     }
   }
 
-  /// POST to the advanced search with `spe_type=TK` and return every ref found
-  /// in the results page. The caller downloads all of them so the user can
-  /// choose the illustration they prefer.
-  Future<List<String>> findAllTokenRefsForName(String name) async {
+  /// Matches links to a card page or an artwork page, with or without a
+  /// leading slash, as they appear in search results and on card pages.
+  static final RegExp _refLink = RegExp(
+    r'carte(?:_art)?\?ref=([a-z0-9]+)',
+    caseSensitive: false,
+  );
+
+  List<String> _extractRefs(String html) {
+    final seen = <String>{};
+    for (final m in _refLink.allMatches(html)) {
+      final ref = m.group(1);
+      if (ref != null && ref.isNotEmpty) seen.add(ref);
+    }
+    return seen.toList();
+  }
+
+  /// POST to MagicVille's advanced search (`resultats`) on the card title and
+  /// return every ref found in the results page. The caller downloads all of
+  /// them so the user can choose the illustration they prefer.
+  ///
+  /// [speType] narrows the search to a special card type (`TK` for tokens);
+  /// omit it to search every card.
+  Future<List<String>> _searchRefsByTitle(
+    String name, {
+    String? speType,
+  }) async {
     final formUri = Uri.parse('${_base}rech_avancee');
     final postUri = Uri.parse('${_base}resultats');
 
@@ -113,11 +135,11 @@ class MagicVilleClient {
 
     final params = <String, String>{
       'manachecksum': '',
-      'spe_options': 'selected',
+      if (speType != null) 'spe_options': 'selected',
       'manaonly': '1',
       'color_search': '1',
       'type_search': '1',
-      'spe_type': 'TK',
+      'spe_type': ?speType,
       'graph_aff': '1',
       'fra': '1',
       'eng': '1',
@@ -133,16 +155,22 @@ class MagicVilleClient {
     };
 
     final body = params.entries
-        .map((e) =>
-            '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
+        .map(
+          (e) =>
+              '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+        )
         .join('&');
     final bodyBytes = utf8.encode(body);
 
-    final request = await _http.postUrl(postUri).timeout(
-      _requestTimeout,
-      onTimeout: () =>
-          throw TimeoutException('MagicVille token search timeout', _requestTimeout),
-    );
+    final request = await _http
+        .postUrl(postUri)
+        .timeout(
+          _requestTimeout,
+          onTimeout: () => throw TimeoutException(
+            'MagicVille search timeout',
+            _requestTimeout,
+          ),
+        );
     request.headers
       ..set(HttpHeaders.userAgentHeader, 'Mozilla/5.0 (Android; Flutter)')
       ..set(HttpHeaders.contentTypeHeader, 'application/x-www-form-urlencoded')
@@ -152,35 +180,47 @@ class MagicVilleClient {
 
     final response = await request.close().timeout(
       _requestTimeout,
-      onTimeout: () =>
-          throw TimeoutException('MagicVille token search close timeout', _requestTimeout),
+      onTimeout: () => throw TimeoutException(
+        'MagicVille search close timeout',
+        _requestTimeout,
+      ),
     );
-    debugPrint('MV token search POST status=${response.statusCode} location=${response.headers.value(HttpHeaders.locationHeader)}');
-    if (response.statusCode != HttpStatus.ok) return [];
+    debugPrint(
+      'MV search "$name" spe=${speType ?? "-"} status=${response.statusCode} '
+      'location=${response.headers.value(HttpHeaders.locationHeader)}',
+    );
+    if (response.statusCode != HttpStatus.ok) {
+      await response.drain<void>().catchError((_) {});
+      return [];
+    }
 
-    final bytes = await consolidateHttpClientResponseBytes(response)
-        .timeout(_requestTimeout);
+    final html = await _readBody(response);
+    final refs = _extractRefs(html);
+    debugPrint('MV search "$name" refs found: $refs');
+    return refs;
+  }
+
+  /// All token refs matching [name], via the advanced search restricted to
+  /// `spe_type=TK`.
+  Future<List<String>> findAllTokenRefsForName(String name) =>
+      _searchRefsByTitle(name, speType: 'TK');
+
+  /// Reads a response body and decodes it with the charset the server declared
+  /// (Magic-Ville often serves latin1, which would make a plain utf8 decode
+  /// throw on accented card names).
+  Future<String> _readBody(HttpClientResponse response) async {
+    final bytes = await consolidateHttpClientResponseBytes(
+      response,
+    ).timeout(_requestTimeout);
     final charset = response.headers.contentType?.charset?.toLowerCase().trim();
     final enc =
-        (charset == 'iso-8859-1' || charset == 'latin1' || charset == 'windows-1252')
-            ? latin1
-            : utf8;
-    final html = _safeDecode(enc, bytes);
-
-    debugPrint('MV token search HTML[0..300]: ${html.length > 300 ? html.substring(0, 300) : html}');
-
-    // Gallery results link to artwork pages (carte_art?ref=xxx) or card pages
-    // (carte?ref=xxx), with or without a leading slash. Match both forms.
-    final seen = <String>{};
-    for (final m in RegExp(
-      r'carte(?:_art)?\?ref=([a-z0-9]+)',
-      caseSensitive: false,
-    ).allMatches(html)) {
-      final ref = m.group(1);
-      if (ref != null) seen.add(ref);
-    }
-    debugPrint('MV token search refs found: ${seen.toList()}');
-    return seen.toList();
+        (charset == 'iso-8859-1' ||
+            charset == 'iso_8859-1' ||
+            charset == 'latin1' ||
+            charset == 'windows-1252')
+        ? latin1
+        : utf8;
+    return _safeDecode(enc, bytes);
   }
 
   String _safeDecode(Encoding enc, List<int> bytes) {
@@ -191,35 +231,56 @@ class MagicVilleClient {
     }
   }
 
+  /// Non-throwing: first ref matching [name], or null.
   Future<String?> tryFindCardRefByName(String name) async {
-    final refs = await findAllCardRefsByName(name);
-    return refs.isEmpty ? null : refs.first;
+    try {
+      final refs = await findAllCardRefsByName(name);
+      return refs.isEmpty ? null : refs.first;
+    } catch (e) {
+      debugPrint('MV name search for "$name" failed: $e');
+      return null;
+    }
   }
 
   /// Returns ALL card refs found in MagicVille's name-search results.
+  ///
+  /// Uses the advanced search first — the `upn_search` quick-search endpoint is
+  /// only an autocomplete helper and no longer yields card links on its own, so
+  /// it is kept purely as a fallback.
   Future<List<String>> findAllCardRefsByName(String name) async {
+    final refs = await _searchRefsByTitle(name);
+    if (refs.isNotEmpty) return refs;
+    return _quickSearchRefsByName(name);
+  }
+
+  /// Legacy quick-search (autocomplete) endpoint, used as a fallback.
+  Future<List<String>> _quickSearchRefsByName(String name) async {
     final uri = Uri.parse(
-      'https://www.magic-ville.com/fr/upn_search',
+      '${_base}upn_search',
     ).replace(queryParameters: {'n': name.toLowerCase()});
 
-    final request = await _http.postUrl(uri);
-    request.headers.set(HttpHeaders.userAgentHeader, 'Mozilla/5.0');
-    request.headers.set(HttpHeaders.acceptHeader, 'text/html,*/*');
-    request.headers.set(HttpHeaders.refererHeader, 'https://www.magic-ville.com/');
+    try {
+      final request = await _http.postUrl(uri).timeout(_requestTimeout);
+      request.headers
+        ..set(HttpHeaders.userAgentHeader, 'Mozilla/5.0 (Android; Flutter)')
+        ..set(HttpHeaders.acceptHeader, 'text/html,*/*')
+        ..set(HttpHeaders.contentLengthHeader, '0')
+        ..set(HttpHeaders.refererHeader, _base);
 
-    final response = await request.close();
-    if (response.statusCode != HttpStatus.ok) return [];
+      final response = await request.close().timeout(_requestTimeout);
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>().catchError((_) {});
+        debugPrint('MV quick search "$name" status=${response.statusCode}');
+        return [];
+      }
 
-    final body = await response.transform(utf8.decoder).join();
-    final seen = <String>{};
-    for (final m in RegExp(
-      r'carte(?:_art)?\?ref=([a-z0-9]+)',
-      caseSensitive: false,
-    ).allMatches(body)) {
-      final ref = m.group(1);
-      if (ref != null && ref.isNotEmpty) seen.add(ref);
+      final refs = _extractRefs(await _readBody(response));
+      debugPrint('MV quick search "$name" refs found: $refs');
+      return refs;
+    } catch (e) {
+      debugPrint('MV quick search "$name" failed: $e');
+      return [];
     }
-    return seen.toList();
   }
 
   /// Fetches the card page (carte?ref=) and extracts all artwork/card refs
@@ -228,16 +289,7 @@ class MagicVilleClient {
   Future<List<String>> findRefsFromCardPage(String ref) async {
     final uri = Uri.parse('${_base}carte?ref=$ref');
     try {
-      final html = await _getHtml(uri);
-      final seen = <String>{};
-      for (final m in RegExp(
-        r'carte(?:_art)?\?ref=([a-z0-9]+)',
-        caseSensitive: false,
-      ).allMatches(html)) {
-        final r = m.group(1);
-        if (r != null && r.isNotEmpty) seen.add(r);
-      }
-      return seen.toList();
+      return _extractRefs(await _getHtml(uri));
     } catch (_) {
       return [];
     }

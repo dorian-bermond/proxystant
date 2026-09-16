@@ -45,6 +45,10 @@ class ForegroundDownloadService {
   /// started — the download still runs, but Android will suspend it (and cut
   /// its network) once the app leaves the foreground.
   ///
+  /// The notification it posts is taken over by DownloadNotifications, which
+  /// re-posts it under the same id with a progress bar, so this class never
+  /// updates the notification text itself.
+  ///
   /// Failures are reported rather than swallowed: a mismatch between the
   /// service class named in AndroidManifest.xml and the one the plugin starts
   /// silently disabled background downloads for a long time.
@@ -65,12 +69,6 @@ class ForegroundDownloadService {
       debugPrint('ForegroundDownloadService.start failed: $e\n$st');
       return false;
     }
-  }
-
-  static Future<void> update(String text) async {
-    try {
-      await FlutterForegroundTask.updateService(notificationText: text);
-    } catch (_) {}
   }
 
   static Future<void> stop() async {

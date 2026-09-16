@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/download_notifications.dart';
 import '../../core/foreground_download_service.dart';
 import '../../providers/providers.dart';
 import '../../services/download_pipeline.dart';
@@ -112,23 +113,44 @@ class _DownloadScreenState extends ConsumerState<DownloadScreen> {
     _sub = stream.listen(
       (p) {
         setState(() => _progress = p);
-        if (p.currentCardName != null) {
-          ForegroundDownloadService.update(p.currentCardName!);
-        }
+        DownloadNotifications.showProgress(
+          processed: p.processedCards,
+          total: p.totalCards,
+          text: p.currentCardName ?? p.message ?? 'Starting…',
+        );
       },
       onError: (e, StackTrace st) {
         debugPrint('Download error: $e\n$st');
+        final last = _progress;
         setState(() {
           _error = e;
           _running = false;
         });
+        DownloadNotifications.showFinished(
+          title: 'Download failed',
+          text: last == null
+              ? '$e'
+              : 'Stopped after ${last.processedCards} of '
+                    '${last.totalCards} cards',
+        );
         ForegroundDownloadService.stop();
       },
       onDone: () {
+        final last = _progress;
         setState(() {
           _running = false;
           _hasPersistedLogs = _log.lines.isNotEmpty;
         });
+        // onDone still fires after onError, which posted its own notification.
+        if (_error == null) {
+          DownloadNotifications.showFinished(
+            title: 'Download finished',
+            text: last == null
+                ? 'Nothing to download'
+                : '${last.artworksDownloaded} artwork(s) for '
+                      '${last.processedCards} card(s)',
+          );
+        }
         ForegroundDownloadService.stop();
       },
       cancelOnError: false,

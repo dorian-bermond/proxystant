@@ -148,6 +148,28 @@ class DownloadPipeline {
     return '$s$padded';
   }
 
+  /// Candidate MagicVille refs for [printings], in Scryfall order, deduped.
+  ///
+  /// A built ref is only a guess — a MagicVille ref does not reliably match a
+  /// Scryfall collector number — so callers probe each one and keep it only
+  /// when MagicVille actually serves a page for it. `plst` and `sld` never line
+  /// up and are skipped entirely.
+  List<String> _builtRefsFromPrintings(List<Map<String, dynamic>> printings) {
+    final refs = <String>[];
+    final seen = <String>{};
+    for (final p in printings) {
+      final set = (p['set'] as String?)?.trim().toLowerCase();
+      final collector = (p['collector_number'] as String?)?.trim();
+      if (set == null || set.isEmpty || collector == null || collector.isEmpty) {
+        continue;
+      }
+      if (set == 'plst' || set == 'sld') continue;
+      final ref = _buildMagicVilleRef(set: set, collectorNumber: collector);
+      if (seen.add(ref)) refs.add(ref);
+    }
+    return refs;
+  }
+
   String _addLangFilterToPrintsUri(String printsUri) {
     // Your requested injection:
     // replace "&unique=prints" with "+(lang:en+OR+lang:fr)&unique=prints"
@@ -316,49 +338,67 @@ class DownloadPipeline {
         );
         // Don't return: fall through so the Scryfall fallback section runs below.
       }
-    } else if (seedFromNameOnly) {
-      yield const _CardRunEvent(message: 'Searching MagicVille by name…');
-      final ref = await magicville.tryFindCardRefByName(faceName);
-      if (ref == null) {
-        yield _CardRunEvent(message: 'No MagicVille ref found for "$faceName"');
-      } else {
-        yield _CardRunEvent(message: 'Name search matched ref=$ref');
-        final result = await magicville.tryFetchArtworkInfo(ref: ref);
-        if (result == null) {
-          yield _CardRunEvent(message: 'No artwork page for ref=$ref');
-        } else {
+    } else {
+      // Name-only seeding searches by name first; both modes then fall back to
+      // probing refs built from the Scryfall printings.
+      if (seedFromNameOnly) {
+        yield const _CardRunEvent(message: 'Searching MagicVille by name…');
+        final search = await magicville.searchRefsByName(faceName);
+        yield _CardRunEvent(message: 'Name search: ${search.describe}');
+
+        for (final ref in search.refs) {
+          final result = await magicville.tryFetchArtworkInfo(ref: ref);
+          if (result == null) continue;
           final (artworks, pageRefs) = result;
           seedRef = ref;
           seedPageRefs = pageRefs;
           yield _CardRunEvent(
             message: 'Seed $ref: ${artworks.length} artwork(s), ${pageRefs.length} edition(s) listed',
           );
+          break;
+        }
+        if (seedRef == null && search.refs.isNotEmpty) {
+          yield const _CardRunEvent(
+            message: 'None of the searched refs had an artwork page',
+          );
         }
       }
-    } else {
-      yield const _CardRunEvent(message: 'Finding MagicVille seed…');
 
-      for (final p in printings) {
-        final set = (p['set'] as String?)?.trim().toLowerCase();
-        final collector = (p['collector_number'] as String?)?.trim();
-        if (set == null || set.isEmpty || collector == null || collector.isEmpty) continue;
-        if (set == 'plst' || set == 'sld') continue;
+      // Refs built from the printings are only guesses, so the name search
+      // gets first refusal — but a guess MagicVille confirms with a real page
+      // beats dropping the card, and it is the one route left when the search
+      // itself is unavailable (Cloudflare) or matches nothing.
+      //
+      // A guess that lands on some other card cannot save its artwork: the
+      // download loop below re-checks every page's own card name against
+      // [faceName] and skips mismatches. The cost of a bad guess is wasted
+      // requests, not wrong art.
+      if (seedRef == null) {
+        final candidates = _builtRefsFromPrintings(printings);
+        yield _CardRunEvent(
+          message: seedFromNameOnly
+              ? 'Trying ${candidates.length} ref(s) built from the Scryfall printings'
+              : 'Finding MagicVille seed…',
+        );
 
-        final ref = _buildMagicVilleRef(set: set, collectorNumber: collector);
-        yield _CardRunEvent(message: 'Trying $ref...');
-        final result = await magicville.tryFetchArtworkInfo(ref: ref);
-        if (result != null) {
-          yield _CardRunEvent(message: 'Matched $ref...');
-          final (_, pageRefs) = result;
-          seedRef = ref;
-          seedPageRefs = pageRefs;
-          break;
+        for (final ref in candidates) {
+          yield _CardRunEvent(message: 'Trying $ref...');
+          final result = await magicville.tryFetchArtworkInfo(ref: ref);
+          if (result != null) {
+            yield _CardRunEvent(message: 'Matched $ref...');
+            final (_, pageRefs) = result;
+            seedRef = ref;
+            seedPageRefs = pageRefs;
+            break;
+          }
         }
       }
 
       if (seedRef == null) {
         yield const _CardRunEvent(message: 'No MagicVille seed page found.');
-        return;
+        // Name-only runs carry on so the Scryfall fallback below still gets a
+        // chance; the collector-number path has nothing else to try.
+        if (!seedFromNameOnly) return;
       }
     }
 

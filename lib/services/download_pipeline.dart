@@ -1070,13 +1070,16 @@ class DownloadPipeline {
           .getSingleOrNull();
       final arts = await database.artworksDao
           .getNonDiscardedArtworksForCard(faceCard.id);
+      var autoPreferred = false;
       if (fresh != null && fresh.preferredArtworkId == null && arts.length == 1) {
         await database.cardsDao.setPreferredArtwork(faceCard.id, arts.first.id);
+        autoPreferred = true;
       }
 
       // Apply a deck-import version hint ("4 Bolt (M11) 149") now that this
       // face's printings are discovered — only if no version was chosen yet.
       final hint = fresh?.importSetHint;
+      var hintApplied = false;
       if (fresh != null &&
           hint != null &&
           fresh.selectedSetCode == null &&
@@ -1092,7 +1095,24 @@ class DownloadPipeline {
                 'Pre-selected version from import hint: ${hint.toUpperCase()}',
           );
           await database.cardsDao.clearImportHints(faceCard.id);
+          hintApplied = true;
         }
+      }
+
+      // The auto-preferred artwork must drive the version the same way a manual
+      // "set preferred" does — unless an import hint already picked one.
+      if (autoPreferred &&
+          !hintApplied &&
+          fresh != null &&
+          fresh.selectedSetCode == null &&
+          !fresh.selectedSetIsVoid) {
+        await versionSelection.autoSelectVersionForArtwork(
+          cardId: faceCard.id,
+          artwork: arts.first,
+        );
+        yield _CardRunEvent(
+          message: 'Auto-selected version for the single artwork found',
+        );
       }
 
       if (arts.isNotEmpty) {
